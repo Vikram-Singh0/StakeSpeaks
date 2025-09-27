@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@lighthouse-web3/sdk": "^0.4.2",
     "@metamask/sdk": "^0.33.1",
     "@web3modal/ethereum": "^2.7.1",
     "@web3modal/react": "^2.7.1",

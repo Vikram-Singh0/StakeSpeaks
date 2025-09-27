@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { ethers } from 'ethers'
 import { MetaMaskSDK } from '@metamask/sdk'
+import { filecoinStorage, UserProfile as FilecoinUserProfile } from '@/services/filecoinStorage'
 
 // Types
 export interface UserProfile {
@@ -28,6 +29,7 @@ export interface WalletContextType {
   connectWallet: (walletType?: string) => Promise<void>
   disconnectWallet: () => void
   updateProfile: (updates: Partial<UserProfile>) => void
+  loadProfileFromFilecoin: (address: string) => Promise<void>
   error: string | null
   switchNetwork: (chainId: string) => Promise<void>
   getBalance: () => Promise<string>
@@ -308,6 +310,37 @@ export function WalletProvider({ children }: WalletProviderProps) {
     }
   }
 
+  const loadProfileFromFilecoin = async (address: string) => {
+    try {
+      const hash = filecoinStorage.getProfileHash(address);
+      if (hash) {
+        const filecoinProfile = await filecoinStorage.getUserProfile(hash);
+        if (filecoinProfile) {
+          // Convert Filecoin profile to WalletContext UserProfile
+          const profile: UserProfile = {
+            address: filecoinProfile.walletAddress,
+            username: filecoinProfile.name || 'Anonymous User',
+            avatar: filecoinProfile.photoUrl,
+            bio: filecoinProfile.bio,
+            expertise: filecoinProfile.expertise,
+            joinedDate: filecoinProfile.joinedDate,
+            totalStaked: filecoinProfile.totalStaked,
+            totalEarnings: filecoinProfile.totalEarnings,
+            sessionsJoined: filecoinProfile.sessionsJoined,
+            reputation: filecoinProfile.reputation,
+            isExpert: filecoinProfile.isExpert,
+            balance: userProfile?.balance || '0'
+          };
+          
+          setUserProfile(profile);
+          localStorage.setItem('talkstake_user_profile', JSON.stringify(profile));
+        }
+      }
+    } catch (error) {
+      console.error('Error loading profile from Filecoin:', error);
+    }
+  }
+
   const value: WalletContextType = {
     isConnected,
     isLoading,
@@ -315,6 +348,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
     connectWallet,
     disconnectWallet,
     updateProfile,
+    loadProfileFromFilecoin,
     error,
     switchNetwork,
     getBalance
