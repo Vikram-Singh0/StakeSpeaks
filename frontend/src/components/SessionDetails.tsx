@@ -15,32 +15,44 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { SpeakerSession } from '../services/filecoinStorage';
 
-interface Session {
-  id: string;
-  title: string;
-  speaker: string;
-  speakerAvatar: string;
-  description: string;
-  isLive: boolean;
-  liveStatus: string;
-  participants: number;
-  stakeRequired: number;
-  totalStaked: number;
-  duration: number;
-  estimatedYield: number;
-  speakerRating: number;
-  category: string;
-  startTime: string;
-  timeLeft: string;
-  tags: string[];
-  viewers: number;
-  likes: number;
-  comments: number;
-}
+// Utility function to calculate time left until session starts
+const getTimeLeft = (startTime: string, status: string, isLive: boolean): string => {
+  if (isLive) return 'LIVE NOW';
+  if (status === 'completed') return 'Completed';
+  if (status === 'cancelled') return 'Cancelled';
+  
+  const start = new Date(startTime);
+  const now = new Date();
+  const diff = start.getTime() - now.getTime();
+  
+  if (diff < 0) return 'Started';
+  
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  
+  if (days > 0) return `${days} day${days > 1 ? 's' : ''}`;
+  if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''}`;
+  if (minutes > 0) return `${minutes} min${minutes > 1 ? 's' : ''}`;
+  return 'Starting soon';
+};
+
+// Function to get speaker rating from session data
+const getSpeakerRating = (session: SpeakerSession): number => {
+  // Use actual speaker rating from session, fallback to calculated rating or default
+  if (session.speakerRating > 0) return session.speakerRating;
+  if (session.averageRating > 0) return session.averageRating;
+  return 4.5; // Static default for new speakers (no more random fluctuation)
+};
+
+const getEstimatedYield = (totalStaked: number, entryFee: number): number => {
+  return totalStaked > 0 ? (totalStaked * 0.05) / entryFee : 8.5;
+};
 
 interface SessionDetailsProps {
-  session: Session | null;
+  session: SpeakerSession | null;
   userProfile: any;
 }
 
@@ -84,7 +96,7 @@ export default function SessionDetails({ session, userProfile }: SessionDetailsP
                 <h2 className="text-xl font-bold text-white">{session.speaker}</h2>
                 <div className="flex items-center space-x-2">
                   <Star className="w-4 h-4 text-yellow-400" />
-                  <span className="text-sm text-white">{session.speakerRating}</span>
+                  <span className="text-sm text-white">{getSpeakerRating(session).toFixed(1)}</span>
                 </div>
               </div>
             </div>
@@ -124,25 +136,25 @@ export default function SessionDetails({ session, userProfile }: SessionDetailsP
                 <span className="text-sm text-gray-400">Stake Required</span>
                 <Wallet className="w-4 h-4 text-gray-400" />
               </div>
-              <div className="text-lg font-bold text-violet-400">{session.stakeRequired} KDA</div>
+              <div className="text-lg font-bold text-violet-400">{session.entryFee} ETH</div>
             </div>
             <div className="bg-gray-800/50 p-3 rounded-lg">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm text-gray-400">Est. Yield</span>
                 <TrendingUp className="w-4 h-4 text-green-400" />
               </div>
-              <div className="text-lg font-bold text-green-400">{session.estimatedYield}%</div>
+              <div className="text-lg font-bold text-green-400">{getEstimatedYield(session.totalStaked, session.entryFee).toFixed(1)}%</div>
             </div>
           </div>
 
           {/* Tags */}
           <div className="flex flex-wrap gap-2 mb-6">
-            {session.tags.map((tag: string) => (
+            {session.topics.map((topic: string) => (
               <span 
-                key={tag}
+                key={topic}
                 className="px-3 py-1 bg-violet-600/20 text-violet-400 text-sm rounded-full border border-violet-600/30"
               >
-                {tag}
+                {topic}
               </span>
             ))}
           </div>

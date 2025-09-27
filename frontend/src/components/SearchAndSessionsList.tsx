@@ -15,38 +15,48 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { SpeakerSession } from '../services/filecoinStorage';
 
-interface Session {
-  id: string;
-  title: string;
-  speaker: string;
-  speakerAvatar: string;
-  description: string;
-  isLive: boolean;
-  liveStatus: string;
-  participants: number;
-  stakeRequired: number;
-  totalStaked: number;
-  duration: number;
-  estimatedYield: number;
-  speakerRating: number;
-  category: string;
-  startTime: string;
-  timeLeft: string;
-  tags: string[];
-  viewers: number;
-  likes: number;
-  comments: number;
-}
+// Utility function to calculate time left until session starts
+const getTimeLeft = (startTime: string, status: string, isLive: boolean): string => {
+  if (isLive) return 'LIVE NOW';
+  if (status === 'completed') return 'Completed';
+  if (status === 'cancelled') return 'Cancelled';
+  
+  const start = new Date(startTime);
+  const now = new Date();
+  const diff = start.getTime() - now.getTime();
+  
+  if (diff < 0) return 'Started';
+  
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  
+  if (days > 0) return `${days} day${days > 1 ? 's' : ''}`;
+  if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''}`;
+  if (minutes > 0) return `${minutes} min${minutes > 1 ? 's' : ''}`;
+  return 'Starting soon';
+};
+
+// Updated function to use actual speaker rating from session
+const getSpeakerRating = (session: SpeakerSession): number => {
+  // Use actual speaker rating from session, fallback to calculated rating or default
+  if (session.speakerRating > 0) return session.speakerRating;
+  if (session.averageRating > 0) return session.averageRating;
+  return 4.5; // Static default for new speakers (no more random fluctuation)
+};
 
 interface SearchAndSessionsListProps {
-  sessions: Session[];
-  selectedSession: Session | null;
-  onSessionSelect: (session: Session) => void;
+  sessions: SpeakerSession[];
+  selectedSession: SpeakerSession | null;
+  onSessionSelect: (session: SpeakerSession) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  sessionFilter: 'all' | 'live' | 'upcoming';
-  onFilterChange: (filter: 'all' | 'live' | 'upcoming') => void;
+  sessionFilter: 'all' | 'live' | 'upcoming' | 'past';
+  onFilterChange: (filter: 'all' | 'live' | 'upcoming' | 'past') => void;
+  onCreateNewEvent?: () => void;
+  isLoadingSessions?: boolean;
 }
 
 export default function SearchAndSessionsList({
@@ -56,18 +66,21 @@ export default function SearchAndSessionsList({
   searchQuery,
   onSearchChange,
   sessionFilter,
-  onFilterChange
+  onFilterChange,
+  onCreateNewEvent,
+  isLoadingSessions = false
 }: SearchAndSessionsListProps) {
   
   // Filter sessions based on search query and filter
   const filteredSessions = sessions.filter(session => {
     const matchesSearch = session.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          session.speaker.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         session.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+                         session.topics.some(topic => topic.toLowerCase().includes(searchQuery.toLowerCase()));
     
     const matchesFilter = sessionFilter === 'all' || 
                          (sessionFilter === 'live' && session.isLive) ||
-                         (sessionFilter === 'upcoming' && !session.isLive);
+                         (sessionFilter === 'upcoming' && !session.isLive && session.status === 'scheduled') ||
+                         (sessionFilter === 'past' && (session.status === 'completed' || session.status === 'cancelled'));
     
     return matchesSearch && matchesFilter;
   });
@@ -75,7 +88,8 @@ export default function SearchAndSessionsList({
   const filters = [
     { key: 'all', label: 'All', icon: Calendar },
     { key: 'live', label: 'Live', icon: Radio },
-    { key: 'upcoming', label: 'Upcoming', icon: CalendarClock }
+    { key: 'upcoming', label: 'Upcoming', icon: CalendarClock },
+    { key: 'past', label: 'Past', icon: Timer }
   ];
 
   return (
@@ -98,10 +112,11 @@ export default function SearchAndSessionsList({
 
             {/* Create Session Button */}
             <Button 
+              onClick={onCreateNewEvent}
               className="w-full bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 text-white text-sm py-2"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Create New Session
+              Create New Event
             </Button>
 
             {/* Filter Buttons */}
@@ -111,7 +126,7 @@ export default function SearchAndSessionsList({
                 return (
                   <button
                     key={filter.key}
-                    onClick={() => onFilterChange(filter.key as 'all' | 'live' | 'upcoming')}
+                    onClick={() => onFilterChange(filter.key as 'all' | 'live' | 'upcoming' | 'past')}
                     className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-1 justify-center ${
                       sessionFilter === filter.key
                         ? 'bg-gradient-to-r from-violet-600 to-blue-600 text-white'
@@ -131,10 +146,15 @@ export default function SearchAndSessionsList({
       {/* Sessions List */}
       <div className="flex-1 overflow-hidden">
         <div className="space-y-3 h-full overflow-y-auto pr-2">
-          {filteredSessions.length === 0 ? (
+          {isLoadingSessions ? (
+            <div className="text-center p-6">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500 mx-auto"></div>
+              <p className="text-gray-400 text-sm mt-2">Loading sessions...</p>
+            </div>
+          ) : filteredSessions.length === 0 ? (
             <Card className="p-6 text-center bg-gray-800/50 border-gray-700">
               <div className="text-gray-400 text-sm">
-                {searchQuery ? 'No sessions match your search.' : 'No sessions available.'}
+                {searchQuery ? 'No sessions match your search.' : sessions.length === 0 ? 'No sessions created yet. Create your first session!' : 'No sessions match the current filter.'}
               </div>
             </Card>
           ) : (
@@ -175,12 +195,12 @@ export default function SearchAndSessionsList({
                             ) : (
                               <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full flex items-center">
                                 <Timer className="w-2.5 h-2.5 mr-1" />
-                                {session.timeLeft}
+                                {getTimeLeft(session.startTime, session.status, session.isLive)}
                               </span>
                             )}
                           </div>
                           <div className="text-xs text-violet-400 font-medium">
-                            {session.stakeRequired} KDA
+                            {session.entryFee} ETH
                           </div>
                         </div>
 
@@ -202,18 +222,18 @@ export default function SearchAndSessionsList({
                           </div>
                           <div className="flex items-center">
                             <Star className="w-3 h-3 mr-1 text-yellow-500" />
-                            {session.speakerRating}
+                            {getSpeakerRating(session).toFixed(1)}
                           </div>
                         </div>
 
                         {/* Tags */}
                         <div className="flex flex-wrap gap-1">
-                          {session.tags.slice(0, 2).map((tag) => (
+                          {session.topics.slice(0, 2).map((topic: string) => (
                             <span 
-                              key={tag}
+                              key={topic}
                               className="px-2 py-0.5 bg-gray-700/70 text-gray-300 text-xs rounded-md"
                             >
-                              {tag}
+                              {topic}
                             </span>
                           ))}
                         </div>
