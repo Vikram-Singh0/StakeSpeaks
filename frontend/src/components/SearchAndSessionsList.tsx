@@ -19,7 +19,7 @@ import { SpeakerSession } from '../services/filecoinStorage';
 
 // Utility function to calculate time left until session starts
 const getTimeLeft = (startTime: string, status: string, isLive: boolean): string => {
-  if (isLive) return 'LIVE NOW';
+  if (isLive || status === 'live') return 'LIVE NOW';
   if (status === 'completed') return 'Completed';
   if (status === 'cancelled') return 'Cancelled';
   
@@ -27,7 +27,11 @@ const getTimeLeft = (startTime: string, status: string, isLive: boolean): string
   const now = new Date();
   const diff = start.getTime() - now.getTime();
   
-  if (diff < 0) return 'Started';
+  // If time has passed, it should be live or completed
+  if (diff < 0) {
+    // Check if it should still be running
+    return 'Started';
+  }
   
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -77,12 +81,26 @@ export default function SearchAndSessionsList({
                          session.speaker.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          session.topics.some(topic => topic.toLowerCase().includes(searchQuery.toLowerCase()));
     
-    const matchesFilter = sessionFilter === 'all' || 
-                         (sessionFilter === 'live' && session.isLive) ||
-                         (sessionFilter === 'upcoming' && !session.isLive && session.status === 'scheduled') ||
-                         (sessionFilter === 'past' && (session.status === 'completed' || session.status === 'cancelled'));
-    
-    return matchesSearch && matchesFilter;
+    if (!matchesSearch) return false;
+
+    // Use the same logic as the backend filtering for consistency
+    const now = new Date();
+    const startTime = new Date(session.startTime);
+    const endTime = session.endTime 
+      ? new Date(session.endTime) 
+      : new Date(startTime.getTime() + (session.duration * 60 * 1000));
+
+    switch (sessionFilter) {
+      case 'live':
+        return session.status === 'live' || session.isLive || (now >= startTime && now <= endTime);
+      case 'upcoming':
+        return session.status === 'scheduled' && startTime > now;
+      case 'past':
+        return session.status === 'completed' || session.status === 'cancelled' || endTime < now;
+      case 'all':
+      default:
+        return true;
+    }
   });
 
   const filters = [
@@ -187,10 +205,20 @@ export default function SearchAndSessionsList({
                         {/* Session Header */}
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2">
-                            {session.isLive ? (
-                              <span className="px-2 py-0.5 bg-red-600 text-white text-xs rounded-full flex items-center">
+                            {(session.isLive || session.status === 'live') ? (
+                              <span className="px-2 py-0.5 bg-red-600 text-white text-xs rounded-full flex items-center animate-pulse">
                                 <Radio className="w-2.5 h-2.5 mr-1" />
                                 LIVE
+                              </span>
+                            ) : session.status === 'completed' ? (
+                              <span className="px-2 py-0.5 bg-gray-600 text-white text-xs rounded-full flex items-center">
+                                <Timer className="w-2.5 h-2.5 mr-1" />
+                                Completed
+                              </span>
+                            ) : session.status === 'cancelled' ? (
+                              <span className="px-2 py-0.5 bg-red-800 text-white text-xs rounded-full flex items-center">
+                                <Timer className="w-2.5 h-2.5 mr-1" />
+                                Cancelled
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full flex items-center">

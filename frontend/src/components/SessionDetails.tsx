@@ -19,7 +19,7 @@ import { SpeakerSession } from '../services/filecoinStorage';
 
 // Utility function to calculate time left until session starts
 const getTimeLeft = (startTime: string, status: string, isLive: boolean): string => {
-  if (isLive) return 'LIVE NOW';
+  if (isLive || status === 'live') return 'LIVE NOW';
   if (status === 'completed') return 'Completed';
   if (status === 'cancelled') return 'Cancelled';
   
@@ -27,7 +27,10 @@ const getTimeLeft = (startTime: string, status: string, isLive: boolean): string
   const now = new Date();
   const diff = start.getTime() - now.getTime();
   
-  if (diff < 0) return 'Started';
+  // If time has passed, it should be live or completed
+  if (diff < 0) {
+    return 'Started';
+  }
   
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));

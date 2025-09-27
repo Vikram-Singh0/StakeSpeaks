@@ -339,10 +339,12 @@ export class FilecoinStorage {
         // Store in localStorage for demo
         localStorage.setItem(`talkstake-session-${session.id}`, JSON.stringify(storageData));
         
-        // Also store in sessions index for easy retrieval
+        // Also store in sessions index for easy retrieval (prevent duplicates)
         const sessionsIndex = this.getSessionsIndex();
-        sessionsIndex.push(session.id);
-        localStorage.setItem('talkstake-sessions-index', JSON.stringify(sessionsIndex));
+        if (!sessionsIndex.includes(session.id)) {
+          sessionsIndex.push(session.id);
+          localStorage.setItem('talkstake-sessions-index', JSON.stringify(sessionsIndex));
+        }
         
         console.log('✅ Demo: Session stored locally with hash:', demoHash);
         return demoHash;
@@ -365,10 +367,12 @@ export class FilecoinStorage {
         // Store hash locally for quick access
         localStorage.setItem(`talkstake-session-hash-${session.id}`, hash);
         
-        // Update sessions index
+        // Update sessions index (prevent duplicates)
         const sessionsIndex = this.getSessionsIndex();
-        sessionsIndex.push(session.id);
-        localStorage.setItem('talkstake-sessions-index', JSON.stringify(sessionsIndex));
+        if (!sessionsIndex.includes(session.id)) {
+          sessionsIndex.push(session.id);
+          localStorage.setItem('talkstake-sessions-index', JSON.stringify(sessionsIndex));
+        }
         
         return hash;
       } else {
@@ -380,12 +384,21 @@ export class FilecoinStorage {
       // Fallback to demo mode if Lighthouse fails
       console.log('🔄 Falling back to demo mode...');
       const demoHash = `fallback-${Date.now()}-${session.id.slice(-6)}`;
-      localStorage.setItem(`talkstake-session-${session.id}`, JSON.stringify({
+      const fallbackData = {
         ...session,
         filecoinHash: demoHash,
         storedAt: new Date().toISOString(),
         storageMode: 'fallback'
-      }));
+      };
+      
+      localStorage.setItem(`talkstake-session-${session.id}`, JSON.stringify(fallbackData));
+      
+      // Update sessions index (prevent duplicates)
+      const sessionsIndex = this.getSessionsIndex();
+      if (!sessionsIndex.includes(session.id)) {
+        sessionsIndex.push(session.id);
+        localStorage.setItem('talkstake-sessions-index', JSON.stringify(sessionsIndex));
+      }
       
       return demoHash;
     }
@@ -398,14 +411,24 @@ export class FilecoinStorage {
     try {
       console.log('📥 Loading all sessions from storage...');
       
+      // Clean up duplicates first
+      await this.cleanupDuplicateSessions();
+      
       const sessionsIndex = this.getSessionsIndex();
       const sessions: SpeakerSession[] = [];
+      const seenSessionIds = new Set<string>(); // Additional deduplication
 
       for (const sessionId of sessionsIndex) {
+        if (seenSessionIds.has(sessionId)) {
+          console.warn(`⚠️ Skipping duplicate session ID: ${sessionId}`);
+          continue;
+        }
+        
         try {
           const session = await this.getSpeakerSession(sessionId);
           if (session) {
             sessions.push(session);
+            seenSessionIds.add(sessionId);
           }
         } catch (error) {
           console.warn(`⚠️ Failed to load session ${sessionId}:`, error);
@@ -415,7 +438,7 @@ export class FilecoinStorage {
       // Sort by creation date (newest first)
       sessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-      console.log(`✅ Loaded ${sessions.length} sessions from storage`);
+      console.log(`✅ Loaded ${sessions.length} unique sessions from storage`);
       return sessions;
 
     } catch (error) {
@@ -433,7 +456,8 @@ export class FilecoinStorage {
       const localData = localStorage.getItem(`talkstake-session-${sessionId}`);
       if (localData) {
         const parsed = JSON.parse(localData);
-        return parsed;
+        // Ensure backward compatibility by adding missing rating fields
+        return this.ensureSessionHasRatingFields(parsed);
       }
 
       // If not in demo mode, try to fetch from Filecoin
@@ -447,7 +471,8 @@ export class FilecoinStorage {
             if (response.ok) {
               const sessionData = await response.json();
               console.log('✅ Session loaded from Filecoin');
-              return sessionData;
+              // Ensure backward compatibility by adding missing rating fields
+              return this.ensureSessionHasRatingFields(sessionData);
             }
           } catch (error) {
             console.warn('⚠️ Failed to fetch from Filecoin, checking local storage');
@@ -495,29 +520,130 @@ export class FilecoinStorage {
     const allSessions = await this.getAllSessions();
     const now = new Date();
 
+    // Update session statuses but batch the storage operations
+    const updatedSessions: SpeakerSession[] = [];
+    const sessionsToUpdate: SpeakerSession[] = [];
+
+    for (const session of allSessions) {
+      const updatedSession = this.updateSessionStatus(session, now);
+      
+      // Collect sessions that need status updates
+      if (updatedSession.status !== session.status || updatedSession.isLive !== session.isLive) {
+        sessionsToUpdate.push(updatedSession);
+      }
+      
+      updatedSessions.push(updatedSession);
+    }
+
+    // Batch update sessions that changed status (async but don't wait)
+    if (sessionsToUpdate.length > 0) {
+      this.batchUpdateSessions(sessionsToUpdate).catch(error => {
+        console.error('❌ Error batch updating sessions:', error);
+      });
+    }
+
     switch (filter) {
       case 'live':
-        return allSessions.filter(session => session.status === 'live' || session.isLive);
+        return updatedSessions.filter(session => 
+          session.status === 'live' || session.isLive
+        );
       
       case 'upcoming':
-        return allSessions.filter(session => {
+        return updatedSessions.filter(session => {
           const startTime = new Date(session.startTime);
           return startTime > now && session.status === 'scheduled';
         });
       
       case 'past':
-        return allSessions.filter(session => {
-          if (session.status === 'completed' || session.status === 'cancelled') {
-            return true;
-          }
-          const startTime = new Date(session.startTime);
-          const endTime = session.endTime ? new Date(session.endTime) : new Date(startTime.getTime() + (session.duration * 60 * 1000));
-          return endTime < now;
+        return updatedSessions.filter(session => {
+          return session.status === 'completed' || session.status === 'cancelled';
         });
       
       case 'all':
       default:
-        return allSessions;
+        return updatedSessions;
+    }
+  }
+
+  /**
+   * Batch update multiple sessions (to avoid excessive storage calls)
+   */
+  private async batchUpdateSessions(sessions: SpeakerSession[]): Promise<void> {
+    console.log(`🔄 Batch updating ${sessions.length} sessions...`);
+    
+    for (const session of sessions) {
+      try {
+        await this.storeSpeakerSession(session);
+        console.log(`📊 Updated session "${session.title}" status: ${session.status}`);
+      } catch (error) {
+        console.error(`❌ Failed to update session ${session.id}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Update session status based on current time
+   */
+  private updateSessionStatus(session: SpeakerSession, now: Date): SpeakerSession {
+    const startTime = new Date(session.startTime);
+    const endTime = session.endTime 
+      ? new Date(session.endTime) 
+      : new Date(startTime.getTime() + (session.duration * 60 * 1000));
+
+    let newStatus = session.status;
+    let newIsLive = session.isLive;
+
+    // Don't change manually cancelled sessions
+    if (session.status === 'cancelled') {
+      return { ...session };
+    }
+
+    // Check if session should be live
+    if (now >= startTime && now <= endTime) {
+      newStatus = 'live';
+      newIsLive = true;
+    }
+    // Check if session should be completed
+    else if (now > endTime) {
+      newStatus = 'completed';
+      newIsLive = false;
+    }
+    // Session is upcoming
+    else if (now < startTime) {
+      newStatus = 'scheduled';
+      newIsLive = false;
+    }
+
+    return {
+      ...session,
+      status: newStatus,
+      isLive: newIsLive,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Manually update all session statuses based on current time
+   */
+  async updateAllSessionStatuses(): Promise<void> {
+    try {
+      console.log('🔄 Updating all session statuses...');
+      const allSessions = await this.getAllSessions();
+      const now = new Date();
+
+      for (const session of allSessions) {
+        const updatedSession = this.updateSessionStatus(session, now);
+        
+        // If status changed, save the updated session
+        if (updatedSession.status !== session.status || updatedSession.isLive !== session.isLive) {
+          await this.storeSpeakerSession(updatedSession);
+          console.log(`📊 Updated session "${session.title}" status: ${session.status} → ${updatedSession.status}`);
+        }
+      }
+
+      console.log('✅ All session statuses updated');
+    } catch (error) {
+      console.error('❌ Error updating session statuses:', error);
     }
   }
 
@@ -552,6 +678,24 @@ export class FilecoinStorage {
     } catch (error) {
       console.error('❌ Error joining session:', error);
       return false;
+    }
+  }
+
+  /**
+   * Clean up duplicate sessions from index
+   */
+  async cleanupDuplicateSessions(): Promise<void> {
+    try {
+      const sessionsIndex = this.getSessionsIndex();
+      const uniqueSessionIds = [...new Set(sessionsIndex)]; // Remove duplicates
+      
+      if (uniqueSessionIds.length !== sessionsIndex.length) {
+        console.log(`🧹 Cleaning up ${sessionsIndex.length - uniqueSessionIds.length} duplicate session entries...`);
+        localStorage.setItem('talkstake-sessions-index', JSON.stringify(uniqueSessionIds));
+        console.log('✅ Session index cleaned up');
+      }
+    } catch (error) {
+      console.error('❌ Error cleaning up sessions:', error);
     }
   }
 
@@ -787,6 +931,118 @@ export class FilecoinStorage {
       reviews: [],
       completionRate: 0,
       recommendationScore: 4.5 // Default recommendation score
+    };
+  }
+
+  /**
+   * Create test sessions for development (with different timings)
+   */
+  async createTestSessions(): Promise<void> {
+    const now = new Date();
+    
+    const testSessions = [
+      {
+        title: "Live Demo Session - Blockchain Basics",
+        description: "Currently running session about blockchain fundamentals",
+        speaker: "John Developer",
+        speakerAddress: "0x1234567890123456789012345678901234567890",
+        speakerAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=john",
+        startTime: new Date(now.getTime() - 10 * 60 * 1000).toISOString(), // Started 10 minutes ago
+        duration: 60, // 1 hour total
+        category: "Technology",
+        topics: ["blockchain", "basics"],
+        entryFee: 0.01,
+        requirements: "Basic knowledge of technology",
+        isPrivate: false,
+        recordingEnabled: true,
+        maxParticipants: 100
+      },
+      {
+        title: "Upcoming Session - DeFi Strategies",
+        description: "Learn advanced DeFi strategies starting in 30 minutes",
+        speaker: "Sarah Crypto",
+        speakerAddress: "0x2345678901234567890123456789012345678901",
+        speakerAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=sarah",
+        startTime: new Date(now.getTime() + 30 * 60 * 1000).toISOString(), // Starts in 30 minutes
+        duration: 90,
+        category: "Finance",
+        topics: ["defi", "strategies", "yield"],
+        entryFee: 0.05,
+        requirements: "Understanding of DeFi basics",
+        isPrivate: false,
+        recordingEnabled: true,
+        maxParticipants: 50
+      },
+      {
+        title: "Past Session - NFT Marketplace Tutorial",
+        description: "Completed session about building NFT marketplaces",
+        speaker: "Alex Artist",
+        speakerAddress: "0x3456789012345678901234567890123456789012",
+        speakerAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=alex",
+        startTime: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(), // Started 2 hours ago
+        duration: 90, // Ended 30 minutes ago
+        category: "Arts",
+        topics: ["nft", "marketplace", "tutorial"],
+        entryFee: 0.03,
+        requirements: "Basic programming knowledge",
+        isPrivate: false,
+        recordingEnabled: true,
+        maxParticipants: 75
+      }
+    ];
+
+    console.log('🧪 Creating test sessions...');
+    for (const sessionData of testSessions) {
+      try {
+        await this.createSpeakerSession(sessionData as any);
+        console.log(`✅ Created test session: ${sessionData.title}`);
+      } catch (error) {
+        console.error(`❌ Failed to create test session: ${sessionData.title}`, error);
+      }
+    }
+    console.log('🎉 Test sessions created successfully!');
+  }
+
+  /**
+   * Clear all sessions (for development/testing)
+   */
+  async clearAllSessions(): Promise<void> {
+    try {
+      console.log('🗑️ Clearing all sessions...');
+      
+      const sessionsIndex = this.getSessionsIndex();
+      
+      // Remove all session data
+      for (const sessionId of sessionsIndex) {
+        localStorage.removeItem(`talkstake-session-${sessionId}`);
+        localStorage.removeItem(`talkstake-session-hash-${sessionId}`);
+      }
+      
+      // Clear the sessions index
+      localStorage.removeItem('talkstake-sessions-index');
+      
+      console.log('✅ All sessions cleared');
+    } catch (error) {
+      console.error('❌ Error clearing sessions:', error);
+    }
+  }
+
+  /**
+   * Ensure session has all rating fields (for backward compatibility)
+   */
+  private ensureSessionHasRatingFields(session: any): SpeakerSession {
+    const defaults = this.getDefaultRatingValues();
+    
+    return {
+      ...session,
+      // Add missing rating fields with defaults if they don't exist
+      averageRating: session.averageRating ?? defaults.averageRating,
+      totalRatings: session.totalRatings ?? defaults.totalRatings,
+      speakerRating: session.speakerRating ?? defaults.speakerRating,
+      engagementScore: session.engagementScore ?? defaults.engagementScore,
+      reviews: session.reviews ?? defaults.reviews,
+      completionRate: session.completionRate ?? defaults.completionRate,
+      recommendationScore: session.recommendationScore ?? defaults.recommendationScore
     };
   }
 }

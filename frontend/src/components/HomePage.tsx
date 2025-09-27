@@ -37,6 +37,18 @@ export default function HomePage() {
     }
   }, [sessionFilter, userProfile?.address]);
 
+  // Periodic refresh to update session statuses (every 30 seconds)
+  useEffect(() => {
+    if (!userProfile?.address) return;
+
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing sessions to update statuses...');
+      loadSessions();
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [userProfile?.address, sessionFilter]);
+
   const loadFilecoinProfile = async () => {
     if (!userProfile?.address) return;
     
@@ -78,7 +90,7 @@ export default function HomePage() {
       console.log('📝 Creating new session...', sessionData.title);
       const newSession = await filecoinStorage.createSpeakerSession(sessionData);
       
-      // Add to local state
+      // Add to local state immediately (optimistic update)
       setSessions(prev => [newSession, ...prev]);
       
       console.log('✅ Session created successfully:', newSession.id);
@@ -86,8 +98,15 @@ export default function HomePage() {
       // Show success message
       alert('🎉 Session created successfully! It will appear in the sessions list.');
       
-      // Reload sessions to ensure consistency
-      setTimeout(() => loadSessions(), 1000);
+      // Reload sessions after a short delay to ensure consistency (but don't duplicate)
+      setTimeout(async () => {
+        try {
+          const refreshedSessions = await filecoinStorage.getFilteredSessions(sessionFilter);
+          setSessions(refreshedSessions);
+        } catch (error) {
+          console.error('❌ Error refreshing sessions:', error);
+        }
+      }, 2000);
       
     } catch (error) {
       console.error('❌ Error creating session:', error);
