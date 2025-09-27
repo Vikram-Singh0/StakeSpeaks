@@ -13,9 +13,10 @@ import { Button } from '@/components/ui/button';
 interface NavigationBarProps {
   userProfile: any;
   onLogout: () => void;
+  onProfileClick: () => void;
 }
 
-export default function NavigationBar({ userProfile, onLogout }: NavigationBarProps) {
+export default function NavigationBar({ userProfile, onLogout, onProfileClick }: NavigationBarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -103,16 +104,19 @@ export default function NavigationBar({ userProfile, onLogout }: NavigationBarPr
                 className="flex items-center space-x-3 p-2 hover:bg-gray-800/50 rounded-lg transition-colors"
               >
                 <img
-                  src={`https://api.dicebear.com/7.x/identicon/svg?seed=${profile.address}`}
+                  src={profile.photoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${profile.address}`}
                   alt="Profile"
                   className="w-8 h-8 rounded-full"
                 />
                 <div className="hidden md:block text-left">
                   <div className="text-sm font-medium text-white">
-                    {profile.username}
+                    {profile.name || profile.username}
+                    {profile.isLoadingProfile && (
+                      <span className="ml-1 text-xs text-gray-400">Loading...</span>
+                    )}
                   </div>
                   <div className="text-xs text-gray-400">
-                    {profile.address.slice(0, 6)}...{profile.address.slice(-4)}
+                    {profile.address ? `${profile.address.slice(0, 6)}...${profile.address.slice(-4)}` : 'Not Connected'}
                   </div>
                 </div>
                 <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showProfileMenu ? 'rotate-180' : ''}`} />
@@ -130,13 +134,25 @@ export default function NavigationBar({ userProfile, onLogout }: NavigationBarPr
                   <div className="p-4 border-b border-gray-700">
                     <div className="flex items-center space-x-3">
                       <img
-                        src={`https://api.dicebear.com/7.x/identicon/svg?seed=${profile.address}`}
+                        src={profile.photoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${profile.address}`}
                         alt="Profile"
                         className="w-12 h-12 rounded-full"
                       />
                       <div>
-                        <div className="font-medium text-white">{profile.username}</div>
-                        <div className="text-sm text-gray-400">{profile.address.slice(0, 10)}...{profile.address.slice(-6)}</div>
+                        <div className="font-medium text-white">
+                          {profile.name || profile.username}
+                          {!profile.hasFilecoinProfile && (
+                            <span className="ml-2 px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded">
+                              Profile Incomplete
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          {profile.address ? `${profile.address.slice(0, 10)}...${profile.address.slice(-6)}` : 'Not Connected'}
+                        </div>
+                        {profile.twitterHandle && (
+                          <div className="text-xs text-blue-400">@{profile.twitterHandle}</div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -156,6 +172,16 @@ export default function NavigationBar({ userProfile, onLogout }: NavigationBarPr
                   </div>
 
                   <div className="p-2">
+                    <button
+                      onClick={() => {
+                        onProfileClick();
+                        setShowProfileMenu(false);
+                      }}
+                      className="w-full flex items-center space-x-3 p-3 text-gray-300 hover:bg-gray-700/50 rounded-lg transition-colors mb-2"
+                    >
+                      <User className="w-4 h-4" />
+                      <span>Manage Profile</span>
+                    </button>
                     <button
                       onClick={handleLogout}
                       className="w-full flex items-center space-x-3 p-3 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"

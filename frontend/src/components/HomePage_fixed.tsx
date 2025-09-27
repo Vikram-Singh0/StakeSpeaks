@@ -1,13 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { motion } from 'framer-motion';
 import NavigationBar from './NavigationBar';
 import SearchAndSessionsList from './SearchAndSessionsList';
 import SessionDetails from './SessionDetails';
-import ProfileManager from './ProfileManager';
-import { filecoinStorage, UserProfile } from '../services/filecoinStorage';
 
 // Session interface matching the component requirements
 interface Session {
@@ -148,89 +146,27 @@ const mockSessions: Session[] = [
 ];
 
 export default function HomePage() {
-  const { isConnected, userProfile, disconnectWallet, loadProfileFromFilecoin } = useWallet();
+  const { isConnected, userProfile, disconnectWallet } = useWallet();
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionFilter, setSessionFilter] = useState<'all' | 'live' | 'upcoming'>('all');
-  const [showProfileManager, setShowProfileManager] = useState(false);
-  const [filecoinProfile, setFilecoinProfile] = useState<UserProfile | null>(null);
-  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
-
-  // Load profile from Filecoin when user connects
-  useEffect(() => {
-    if (userProfile?.address) {
-      loadFilecoinProfile();
-    }
-  }, [userProfile?.address]);
-
-  const loadFilecoinProfile = async () => {
-    if (!userProfile?.address) return;
-    
-    setIsLoadingProfile(true);
-    try {
-      console.log('🔍 Loading profile from Filecoin for:', userProfile.address);
-      const profile = await filecoinStorage.getUserProfile(userProfile.address);
-      if (profile) {
-        setFilecoinProfile(profile);
-        console.log('✅ Profile loaded from Filecoin:', profile.name);
-      } else {
-        console.log('📝 No profile found, user needs to create one');
-        setFilecoinProfile(null);
-      }
-    } catch (error) {
-      console.error('❌ Error loading profile:', error);
-    } finally {
-      setIsLoadingProfile(false);
-    }
-  };
 
   const handleLogout = () => {
     disconnectWallet();
   };
 
-  const handleProfileClick = () => {
-    setShowProfileManager(true);
-  };
-
-  const handleProfileUpdate = async (updatedProfile: UserProfile) => {
-    // Profile is already stored on Filecoin by ProfileManager
-    // Refresh the local Filecoin profile data
-    setFilecoinProfile(updatedProfile);
-    
-    // Also reload from Filecoin to ensure consistency
-    await loadFilecoinProfile();
-    
-    // Reload it in the wallet context if needed
-    if (updatedProfile.walletAddress && loadProfileFromFilecoin) {
-      await loadProfileFromFilecoin(updatedProfile.walletAddress);
-    }
-    
-    setShowProfileManager(false);
-  };
-
-  // Create enhanced profile for navbar (combines wallet + Filecoin data)
-  const profile = {
-    address: userProfile?.address || '',
-    username: filecoinProfile?.name || userProfile?.username || 'Anonymous User',
-    name: filecoinProfile?.name || 'Anonymous User',
-    photoUrl: filecoinProfile?.photoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${userProfile?.address || 'default'}`,
-    bio: filecoinProfile?.bio || '',
-    twitterHandle: filecoinProfile?.twitterHandle || '',
-    totalStaked: filecoinProfile?.totalStaked || userProfile?.totalStaked || 0,
-    totalEarnings: filecoinProfile?.totalEarnings || userProfile?.totalEarnings || 0,
-    balance: userProfile?.balance || '0',
-    isLoadingProfile,
-    hasFilecoinProfile: !!filecoinProfile
+  const profile = userProfile || {
+    address: '',
+    username: 'Anonymous User',
+    totalStaked: 0,
+    totalEarnings: 0,
+    balance: '0'
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       {/* Navigation Bar */}
-      <NavigationBar 
-        userProfile={profile} 
-        onLogout={handleLogout}
-        onProfileClick={handleProfileClick}
-      />
+      <NavigationBar userProfile={profile} onLogout={handleLogout} />
 
       {/* Main Content */}
       <div className="container mx-auto px-6 py-8">
@@ -238,37 +174,26 @@ export default function HomePage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="grid grid-cols-12 gap-8 h-[calc(100vh-140px)]"
+          className="grid grid-cols-1 xl:grid-cols-[400px_1fr] gap-6 h-[calc(100vh-140px)]"
         >
-          {/* Left Column - Search & Sessions (Narrower) */}
-          <div className="col-span-12 lg:col-span-5">
-            <SearchAndSessionsList 
-              sessions={mockSessions}
-              selectedSession={selectedSession}
-              onSessionSelect={setSelectedSession}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              sessionFilter={sessionFilter}
-              onFilterChange={setSessionFilter}
-            />
-          </div>
+          {/* Left Column - Search & Sessions (Narrow) */}
+          <SearchAndSessionsList 
+            sessions={mockSessions}
+            selectedSession={selectedSession}
+            onSessionSelect={setSelectedSession}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            sessionFilter={sessionFilter}
+            onFilterChange={setSessionFilter}
+          />
 
-          {/* Right Column - Session Details (Wider) */}
-          <div className="col-span-12 lg:col-span-7">
-            <SessionDetails 
-              session={selectedSession}
-              userProfile={profile}
-            />
-          </div>
+          {/* Right Column - Session Details (Wide) */}
+          <SessionDetails 
+            session={selectedSession}
+            userProfile={profile}
+          />
         </motion.div>
       </div>
-
-      {/* Profile Manager Modal */}
-      <ProfileManager
-        isOpen={showProfileManager}
-        onClose={() => setShowProfileManager(false)}
-        onProfileUpdate={handleProfileUpdate}
-      />
     </div>
   );
 }
