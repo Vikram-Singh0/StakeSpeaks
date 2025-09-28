@@ -1,4 +1,4 @@
-# TalkStake: Multi-Sponsor Integration Platform
+# StakeSpeaks: Multi-Sponsor Integration Platform
 
 ## 🎯 Overview
 
