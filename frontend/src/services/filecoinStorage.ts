@@ -119,18 +119,21 @@ export class FilecoinStorage {
       
       const uploadResponse = await this.uploadToLighthouseWithRetry([file], 3);
       
-      if (uploadResponse?.data?.Hash) {
-        const hash = uploadResponse.data.Hash;
-        console.log('✅ Profile stored on Filecoin with hash:', hash);
-        
-        // Also store hash locally for quick access
-        localStorage.setItem(`talkstake-hash-${profile.walletAddress}`, hash);
-        
-        return hash;
-      } else {
-        console.error('❌ Upload response structure:', uploadResponse);
-        throw new Error('Failed to get hash from Lighthouse upload response');
+      if (uploadResponse && typeof uploadResponse === 'object' && 'data' in uploadResponse) {
+        const responseData = uploadResponse.data as { Hash?: string };
+        if (responseData?.Hash) {
+          const hash = responseData.Hash;
+          console.log('✅ Profile stored on Filecoin with hash:', hash);
+          
+          // Also store hash locally for quick access
+          localStorage.setItem(`talkstake-hash-${profile.walletAddress}`, hash);
+          
+          return hash;
+        }
       }
+      
+      console.error('❌ Upload response structure:', uploadResponse);
+      throw new Error('Failed to get hash from Lighthouse upload response');
     } catch (error) {
       console.error('❌ Error storing profile:', error);
       
@@ -185,7 +188,7 @@ export class FilecoinStorage {
           console.log('🌐 Fetching profile from Filecoin database with hash:', hash);
           const profileData = await this.fetchFromLighthouseWithRetry(hash);
           console.log('✅ Profile loaded from Filecoin database');
-          return profileData;
+          return profileData as UserProfile;
         } catch (error) {
           console.warn('⚠️ Failed to fetch from Filecoin database:', error);
         }
@@ -302,11 +305,12 @@ export class FilecoinStorage {
       console.log(`✅ Retrieved ${allUploads.length} total uploads from Lighthouse`);
       
       // Filter and categorize files
-      const sessionFiles = allUploads.filter(file => 
+      const typedUploads = allUploads as { fileName?: string }[];
+      const sessionFiles = typedUploads.filter(file => 
         file.fileName && file.fileName.startsWith('talkstake-session-') && file.fileName.endsWith('.json')
       );
       
-      const profileFiles = allUploads.filter(file => 
+      const profileFiles = typedUploads.filter(file => 
         file.fileName && file.fileName.startsWith('talkstake-profile-') && file.fileName.endsWith('.json')
       );
 
@@ -351,7 +355,8 @@ export class FilecoinStorage {
         return uploads;
       }
 
-      const sessionFiles = uploads.data.sessionFileList;
+      const uploadsData = uploads.data as any;
+      const sessionFiles = uploadsData.sessionFileList;
       console.log(`📊 Found ${sessionFiles.length} session files in database`);
 
       if (sessionFiles.length === 0) {
@@ -359,8 +364,8 @@ export class FilecoinStorage {
           success: true,
           data: {
             message: 'No session files found in database',
-            totalFiles: uploads.data.totalFiles,
-            allFiles: uploads.data.allFiles.slice(0, 5) // Show first 5 files for debugging
+            totalFiles: uploadsData.totalFiles,
+            allFiles: uploadsData.allFiles.slice(0, 5) // Show first 5 files for debugging
           }
         };
       }

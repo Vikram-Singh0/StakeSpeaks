@@ -271,12 +271,8 @@ class ChatStorageService {
       this.messages.delete(sessionId);
       this.participants.delete(sessionId);
       
-      // Store session end event in Filecoin
-      await filecoinStorage.storeData({
-        type: 'session_end',
-        sessionId,
-        endedAt: new Date()
-      });
+      // Note: Session end event could be stored in Filecoin if needed
+      // await filecoinStorage.storeSpeakerSession(...);
 
       console.log('🧹 Session data cleared:', sessionId);
     } catch (error) {

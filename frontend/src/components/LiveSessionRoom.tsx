@@ -110,29 +110,44 @@ export default function LiveSessionRoom({ session, userProfile, onLeave }: LiveS
         const speakerParticipant: Participant = {
           id: `speaker-${session.id}`,
           userId: session.speaker,
-          username: session.speaker,
-          avatar: session.speakerAvatar,
+          username: 'Stranger',
+          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
           isSpeaking: true,
           isMuted: false,
           isVideoOn: true,
           role: 'speaker',
           speakRequested: false
         };
-        setParticipants([speakerParticipant]);
 
         // Add current user as participant
         const currentUserParticipant: Participant = {
           id: `user-${userProfile.address}`,
           userId: userProfile.address,
-          username: userProfile.username,
-          avatar: userProfile.photoUrl,
+          username: 'Stranger',
+          avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b5e5?w=150&h=150&fit=crop&crop=face',
           isSpeaking: false,
           isMuted: false,
           isVideoOn: true,
           role: 'participant',
           speakRequested: false
         };
-        setParticipants(prev => [...prev, currentUserParticipant]);
+
+        // Add some additional participants for demo
+        const additionalParticipants: Participant[] = [
+          {
+            id: 'participant-1',
+            userId: 'participant-1',
+            username: 'Learning',
+            avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&crop=face',
+            isSpeaking: false,
+            isMuted: true,
+            isVideoOn: true,
+            role: 'participant',
+            speakRequested: false
+          }
+        ];
+
+        setParticipants([speakerParticipant, currentUserParticipant, ...additionalParticipants]);
 
         // Initialize audio
         await initializeAudio();
@@ -281,48 +296,32 @@ export default function LiveSessionRoom({ session, userProfile, onLeave }: LiveS
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 p-4">
+      {/* Clean Header */}
+      <div className="bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
+          {/* Session Info */}
           <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onLeave}
-              className="text-gray-400 hover:text-white"
-            >
-              <PhoneOff className="w-5 h-5" />
-            </Button>
-            <div>
-              <h1 className="text-lg font-semibold text-white">{session.title}</h1>
-              <p className="text-sm text-gray-400">by {session.speaker}</p>
-            </div>
+            <h1 className="text-xl font-bold text-white">Stake Speaks</h1>
             {isConnected && (
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 px-3 py-1 bg-green-500/20 rounded-full">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-sm text-green-400">Live</span>
+                <span className="text-green-400 text-sm font-medium">Live</span>
               </div>
             )}
           </div>
           
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowParticipants(!showParticipants)}
-              className="text-gray-400 hover:text-white"
-            >
-              <Users className="w-5 h-5" />
-              <span className="ml-1">{participants.length}</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowChat(!showChat)}
-              className="text-gray-400 hover:text-white"
-            >
-              <MessageSquare className="w-5 h-5" />
-            </Button>
+          {/* Top Right Controls */}
+          <div className="flex items-center space-x-4">
+            <div className="text-right">
+              <div className="text-white font-medium">0.00 KDA</div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center">
+                <span className="text-white text-sm font-bold">S</span>
+              </div>
+              <span className="text-white text-sm">Stranger</span>
+              <span className="text-gray-400 text-sm">Speaking</span>
+            </div>
           </div>
         </div>
       </div>
@@ -330,353 +329,255 @@ export default function LiveSessionRoom({ session, userProfile, onLeave }: LiveS
       <div className="flex flex-1 overflow-hidden">
         {/* Main Video Area */}
         <div className="flex-1 flex flex-col">
-          {/* Enhanced Participant Grid */}
-          <div className="flex-1 p-6">
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 h-full">
-              {participants.map((participant, index) => (
-                <motion.div
-                  key={participant.id}
-                  initial={{ opacity: 0, scale: 0.8, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                  className={`relative flex flex-col items-center space-y-3 group ${
-                    participant.isSpeaking ? 'ring-4 ring-green-400 shadow-2xl shadow-green-400/40' : ''
-                  } ${participant.userId === userProfile.address ? 'ring-4 ring-violet-400 shadow-2xl shadow-violet-400/40' : ''}`}
-                >
-                  {/* Enhanced Circular Avatar Container */}
-                  <div className="relative">
-                    {/* Main Circular Avatar */}
-                    <div className={`w-24 h-24 rounded-full overflow-hidden border-4 relative ${
-                      participant.isSpeaking 
-                        ? 'border-green-400 shadow-2xl shadow-green-400/50' 
-                        : participant.userId === userProfile.address 
-                        ? 'border-violet-400 shadow-2xl shadow-violet-400/50'
-                        : 'border-gray-500'
-                    }`}>
-                      {/* Gradient Background */}
-                      <div className={`absolute inset-0 bg-gradient-to-br ${
-                        participant.role === 'speaker' 
-                          ? 'from-yellow-400 to-orange-500' 
-                          : participant.role === 'moderator'
-                          ? 'from-blue-400 to-indigo-500'
-                          : 'from-gray-600 to-gray-700'
-                      } opacity-20`} />
-                      
-                      <img
-                        src={participant.avatar}
-                        alt={participant.username}
-                        className="w-full h-full object-cover relative z-10"
-                      />
-                      
-                      {/* Speaking Indicator Overlay */}
-                      {participant.isSpeaking && (
-                        <div className="absolute inset-0 bg-green-400/30 animate-pulse rounded-full z-20" />
-                      )}
-                      
-                      {/* Connection Status Indicator */}
-                      <div className="absolute top-1 left-1 z-30">
-                        <div className="w-3 h-3 bg-green-500 rounded-full border-2 border-white shadow-lg animate-pulse" />
-                      </div>
-                    </div>
-                    
-                    {/* Enhanced Status Indicators */}
-                    <div className="absolute -top-2 -right-2">
-                      {/* Mic Status */}
-                      <motion.div 
-                        className={`rounded-full p-1.5 shadow-lg ${
-                          participant.isMuted ? 'bg-red-500' : 'bg-green-500'
-                        }`}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        {participant.isMuted ? (
-                          <MicOff className="w-3 h-3 text-white" />
-                        ) : (
-                          <Mic className="w-3 h-3 text-white" />
-                        )}
-                      </motion.div>
-                    </div>
-                    
-                    <div className="absolute -bottom-2 -right-2">
-                      {/* Video Status */}
-                      <motion.div 
-                        className={`rounded-full p-1.5 shadow-lg ${
-                          participant.isVideoOn ? 'bg-blue-500' : 'bg-gray-500'
-                        }`}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        {participant.isVideoOn ? (
-                          <Video className="w-3 h-3 text-white" />
-                        ) : (
-                          <VideoOff className="w-3 h-3 text-white" />
-                        )}
-                      </motion.div>
-                    </div>
-                    
-                    {/* Enhanced Role Badge */}
-                    <div className="absolute -top-2 -left-2">
-                      {participant.role === 'speaker' && (
-                        <motion.div 
-                          className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full p-1.5 shadow-lg"
-                          animate={{ rotate: [0, 5, -5, 0] }}
-                          transition={{ duration: 2, repeat: Infinity }}
-                        >
-                          <Crown className="w-3 h-3 text-white" />
-                        </motion.div>
-                      )}
-                      {participant.role === 'moderator' && (
-                        <motion.div 
-                          className="bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full p-1.5 shadow-lg"
-                          whileHover={{ scale: 1.1 }}
-                        >
-                          <Shield className="w-3 h-3 text-white" />
-                        </motion.div>
-                      )}
-                    </div>
-                    
-                    {/* Speak Request Indicator */}
-                    {participant.speakRequested && (
-                      <motion.div 
-                        className="absolute -bottom-2 -left-2 bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full p-1.5 shadow-lg"
-                        animate={{ 
-                          scale: [1, 1.2, 1],
-                          rotate: [0, 10, -10, 0]
-                        }}
-                        transition={{ duration: 1, repeat: Infinity }}
-                      >
-                        <Hand className="w-3 h-3 text-white" />
-                      </motion.div>
-                    )}
-                    
-                    {/* Current User Badge */}
-                    {participant.userId === userProfile.address && (
-                      <motion.div 
-                        className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-violet-500 to-purple-600 rounded-full px-3 py-1 shadow-lg"
-                        animate={{ y: [0, -2, 0] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      >
-                        <span className="text-white text-xs font-bold">YOU</span>
-                      </motion.div>
-                    )}
-                    
-                    {/* Activity Pulse Ring */}
-                    {participant.isSpeaking && (
-                      <motion.div
-                        className="absolute inset-0 rounded-full border-4 border-green-400"
-                        animate={{ scale: [1, 1.2, 1], opacity: [0.8, 0, 0.8] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                      />
-                    )}
-                  </div>
-                  
-                  {/* Enhanced Participant Info */}
-                  <div className="text-center space-y-2">
-                    <div className="flex items-center justify-center space-x-2">
-                      <span className="text-white text-sm font-semibold truncate max-w-24">
-                        {participant.username}
-                      </span>
-                      {participant.role === 'speaker' && (
-                        <Star className="w-3 h-3 text-yellow-400" />
-                      )}
-                      {participant.role === 'moderator' && (
-                        <Shield className="w-3 h-3 text-blue-400" />
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+          {/* Participant Grid - Cleaner Design */}
+          <div className="flex-1 p-8">
+            <div className="flex items-center justify-center h-full">
+              <div className="grid grid-cols-2 gap-8">
+                {participants.slice(0, 4).map((participant, index) => (
+                  <motion.div
+                    key={participant.id}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                    className="relative flex flex-col items-center space-y-4"
+                  >
+                    {/* Clean Circular Avatar */}
+                    <div className="relative">
+                      <div className={`w-32 h-32 rounded-full overflow-hidden border-4 ${
                         participant.isSpeaking 
-                          ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-                          : participant.speakRequested 
-                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                          : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
-                      }`}>
-                        {participant.isSpeaking ? 'Speaking' : participant.speakRequested ? 'Requested' : 'Listening'}
+                          ? 'border-green-400 shadow-lg shadow-green-400/30' 
+                          : participant.userId === userProfile.address 
+                          ? 'border-blue-400 shadow-lg shadow-blue-400/30'
+                          : 'border-gray-600'
+                      } transition-all duration-300`}>
+                        {/* Avatar Image with Gradient Background */}
+                        <div className={`absolute inset-0 bg-gradient-to-br ${
+                          participant.role === 'speaker' 
+                            ? 'from-orange-500 to-yellow-500' 
+                            : 'from-blue-500 to-purple-600'
+                        }`} />
+                        
+                        <img
+                          src={participant.avatar}
+                          alt={participant.username}
+                          className="w-full h-full object-cover relative z-10"
+                        />
+                        
+                        {/* Speaking Animation Overlay */}
+                        {participant.isSpeaking && (
+                          <div className="absolute inset-0 bg-green-400/20 animate-pulse rounded-full z-20" />
+                        )}
                       </div>
+                      
+                      {/* Status Indicators */}
+                      <div className="absolute -bottom-1 -right-1">
+                        <div className={`rounded-full p-2 shadow-lg ${
+                          participant.isMuted ? 'bg-red-500' : 'bg-green-500'
+                        }`}>
+                          {participant.isMuted ? (
+                            <MicOff className="w-4 h-4 text-white" />
+                          ) : (
+                            <Mic className="w-4 h-4 text-white" />
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Speaker Badge */}
+                      {participant.role === 'speaker' && (
+                        <div className="absolute -top-2 -left-2 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full p-2 shadow-lg">
+                          <Crown className="w-4 h-4 text-white" />
+                        </div>
+                      )}
+                      
+                      {/* Speaking Pulse Ring */}
+                      {participant.isSpeaking && (
+                        <motion.div
+                          className="absolute inset-0 rounded-full border-2 border-green-400"
+                          animate={{ 
+                            scale: [1, 1.1, 1], 
+                            opacity: [0.5, 0, 0.5] 
+                          }}
+                          transition={{ duration: 2, repeat: Infinity }}
+                        />
+                      )}
                     </div>
                     
-                    {/* Connection Quality Indicator */}
-                    <div className="flex items-center justify-center space-x-1">
-                      <div className="w-1 h-1 bg-green-500 rounded-full" />
-                      <div className="w-1 h-1 bg-green-500 rounded-full" />
-                      <div className="w-1 h-1 bg-green-500 rounded-full" />
-                      <span className="text-xs text-gray-500 ml-1">HD</span>
+                    {/* Participant Name */}
+                    <div className="text-center">
+                      <h3 className="text-white font-semibold text-lg">
+                        {participant.username}
+                      </h3>
+                      <p className="text-gray-400 text-sm capitalize">
+                        {participant.role}
+                      </p>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Enhanced Bottom Controls - Matching Image Design */}
+          {/* Control Bar - Matching Image Design */}
           <div className="bg-gray-900/95 backdrop-blur-sm border-t border-gray-700 p-6">
-            <div className="flex items-center justify-center space-x-4">
+            <div className="flex items-center justify-center space-x-6">
               {/* Mute/Unmute Button */}
-              <Button
-                variant="ghost"
-                size="lg"
+              <motion.button
                 onClick={toggleMute}
-                className={`rounded-full w-14 h-14 transition-all duration-300 hover:scale-110 ${
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={`rounded-full w-12 h-12 flex items-center justify-center transition-all duration-200 ${
                   isMuted 
-                    ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30' 
-                    : 'bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-500/30'
+                    ? 'bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30' 
+                    : 'bg-gray-700 hover:bg-gray-600 shadow-lg'
                 }`}
-                title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+                title={isMuted ? 'Unmute' : 'Mute'}
               >
-                {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-              </Button>
+                {isMuted ? (
+                  <MicOff className="w-5 h-5 text-white" />
+                ) : (
+                  <Mic className="w-5 h-5 text-white" />
+                )}
+              </motion.button>
               
-              {/* Video On/Off Button */}
-              <Button
-                variant="ghost"
-                size="lg"
+              {/* Video Button */}
+              <motion.button
                 onClick={toggleVideo}
-                className={`rounded-full w-14 h-14 transition-all duration-300 hover:scale-110 ${
-                  isVideoOn 
-                    ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/30' 
-                    : 'bg-gray-500 hover:bg-gray-600 text-white shadow-lg shadow-gray-500/30'
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={`rounded-full w-12 h-12 flex items-center justify-center transition-all duration-200 ${
+                  !isVideoOn 
+                    ? 'bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30' 
+                    : 'bg-gray-700 hover:bg-gray-600 shadow-lg'
                 }`}
-                title={isVideoOn ? 'Turn Off Camera' : 'Turn On Camera'}
+                title={isVideoOn ? 'Turn off camera' : 'Turn on camera'}
               >
-                {isVideoOn ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
-              </Button>
+                {isVideoOn ? (
+                  <Video className="w-5 h-5 text-white" />
+                ) : (
+                  <VideoOff className="w-5 h-5 text-white" />
+                )}
+              </motion.button>
               
-              {/* Super Chat Button - Featured prominently like in the image */}
-              <Button
-                variant="ghost"
-                size="lg"
+              {/* Super Chat Button - Featured prominently */}
+              <motion.button
                 onClick={handleSpeakRequest}
-                className={`rounded-full w-14 h-14 transition-all duration-300 hover:scale-110 ${
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={`rounded-full px-6 py-3 flex items-center space-x-2 transition-all duration-200 ${
                   speakRequested 
-                    ? 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white shadow-lg shadow-yellow-500/30 animate-pulse' 
-                    : 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white shadow-lg shadow-yellow-500/30'
+                    ? 'bg-gradient-to-r from-yellow-400 to-orange-500 shadow-lg shadow-yellow-500/40 animate-pulse' 
+                    : 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 shadow-lg shadow-yellow-500/30'
                 }`}
-                title={speakRequested ? 'Cancel Super Chat' : 'Super Chat'}
+                title="Super Chat"
               >
-                <Star className="w-6 h-6" />
-              </Button>
+                <Sparkles className="w-5 h-5 text-white" />
+                <span className="text-white font-bold text-sm">Super Chat</span>
+              </motion.button>
               
               {/* End Call Button */}
-              <Button
-                variant="ghost"
-                size="lg"
+              <motion.button
                 onClick={onLeave}
-                className="rounded-full w-14 h-14 bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/30 transition-all duration-300 hover:scale-110"
-                title="End Call"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="rounded-full w-12 h-12 bg-red-600 hover:bg-red-700 flex items-center justify-center shadow-lg shadow-red-600/30 transition-all duration-200"
+                title="End call"
               >
-                <PhoneOff className="w-6 h-6" />
-              </Button>
+                <PhoneOff className="w-5 h-5 text-white" />
+              </motion.button>
               
               {/* Chat Toggle Button */}
-              <Button
-                variant="ghost"
-                size="lg"
+              <motion.button
                 onClick={() => setShowChat(!showChat)}
-                className={`rounded-full w-14 h-14 transition-all duration-300 hover:scale-110 ${
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={`rounded-full w-12 h-12 flex items-center justify-center transition-all duration-200 ${
                   showChat 
-                    ? 'bg-purple-500 hover:bg-purple-600 text-white shadow-lg shadow-purple-500/30' 
-                    : 'bg-gray-600 hover:bg-gray-700 text-white shadow-lg shadow-gray-600/30'
+                    ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/30' 
+                    : 'bg-gray-700 hover:bg-gray-600 shadow-lg'
                 }`}
-                title={showChat ? 'Hide Chat' : 'Show Chat'}
+                title={showChat ? 'Hide chat' : 'Show chat'}
               >
-                <MessageSquare className="w-6 h-6" />
-              </Button>
+                <MessageSquare className="w-5 h-5 text-white" />
+              </motion.button>
               
-              {/* Participants Toggle Button */}
-              <Button
-                variant="ghost"
-                size="lg"
-                onClick={() => setShowParticipants(!showParticipants)}
-                className={`rounded-full w-14 h-14 transition-all duration-300 hover:scale-110 ${
-                  showParticipants 
-                    ? 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' 
-                    : 'bg-gray-600 hover:bg-gray-700 text-white shadow-lg shadow-gray-600/30'
-                }`}
-                title={showParticipants ? 'Hide Participants' : 'Show Participants'}
+              {/* Settings/More Button */}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="rounded-full w-12 h-12 bg-gray-700 hover:bg-gray-600 flex items-center justify-center shadow-lg transition-all duration-200"
+                title="More options"
               >
-                <Users className="w-6 h-6" />
-              </Button>
+                <Settings className="w-5 h-5 text-white" />
+              </motion.button>
             </div>
             
-            {/* Enhanced Status Bar */}
-            <div className="flex items-center justify-center mt-4 space-x-6">
-              <div className="flex items-center space-x-2 px-3 py-1 bg-gray-800/50 rounded-full">
-                {isConnected ? (
-                  <>
-                    <Wifi className="w-4 h-4 text-green-500" />
-                    <span className="text-green-500 text-sm font-medium">Connected</span>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="w-4 h-4 text-red-500" />
-                    <span className="text-red-500 text-sm font-medium">Connecting...</span>
-                  </>
-                )}
+            {/* Connection Status */}
+            <div className="flex items-center justify-center mt-4 space-x-4">
+              <div className="flex items-center space-x-2 text-sm text-gray-400">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span>Connected</span>
               </div>
-              
-              {audioInitialized && (
-                <div className="flex items-center space-x-2 px-3 py-1 bg-gray-800/50 rounded-full">
-                  <Mic className="w-4 h-4 text-green-500" />
-                  <span className="text-green-500 text-sm font-medium">Audio Ready</span>
-                </div>
-              )}
-              
-              <div className="flex items-center space-x-2 px-3 py-1 bg-gray-800/50 rounded-full">
-                <Users className="w-4 h-4 text-violet-500" />
-                <span className="text-violet-500 text-sm font-medium">{participants.length} Participants</span>
+              <div className="text-gray-500">•</div>
+              <div className="text-sm text-gray-400">
+                Audio Ready
+              </div>
+              <div className="text-gray-500">•</div>
+              <div className="text-sm text-gray-400">
+                {participants.length} Participants
               </div>
             </div>
           </div>
         </div>
 
-        {/* Chat Panel */}
+        {/* Live Chat Panel */}
         <AnimatePresence>
           {showChat && (
             <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: 320 }}
-              exit={{ width: 0 }}
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 350, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.3 }}
               className="bg-gray-900/95 backdrop-blur-sm border-l border-gray-700 flex flex-col"
             >
-              <div className="p-4 border-b border-gray-700">
+              {/* Chat Header */}
+              <div className="px-4 py-3 border-b border-gray-700">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <MessageSquare className="w-5 h-5 text-violet-500" />
-                    <h3 className="font-semibold text-white">Live Chat</h3>
-                    <div className="bg-violet-600 rounded-full px-2 py-1">
-                      <span className="text-white text-xs font-medium">{messages.length}</span>
-                    </div>
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <h3 className="text-white font-semibold">Live Chat</h3>
+                    <span className="bg-gray-700 rounded-full px-2 py-1 text-xs text-gray-300">
+                      {messages.length}
+                    </span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <button
                     onClick={() => setShowChat(false)}
-                    className="text-gray-400 hover:text-white"
+                    className="text-gray-400 hover:text-white p-1"
                   >
                     <ChevronRight className="w-4 h-4" />
-                  </Button>
+                  </button>
                 </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Welcome to Sydney! This session is now live.
+                </p>
               </div>
               
+              {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.map((message) => (
                   <motion.div
                     key={message.id}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`flex space-x-3 ${
-                      message.type === 'system' ? 'justify-center' : ''
-                    }`}
+                    className="flex space-x-3"
                   >
                     {message.type !== 'system' && (
                       <img
                         src={message.avatar}
                         alt={message.username}
-                        className="w-8 h-8 rounded-full flex-shrink-0 border-2 border-violet-500/30"
+                        className="w-8 h-8 rounded-full flex-shrink-0"
                       />
                     )}
-                    <div className={`flex-1 ${message.type === 'system' ? 'text-center' : ''}`}>
+                    <div className="flex-1">
                       {message.type !== 'system' && (
                         <div className="flex items-center space-x-2 mb-1">
                           <span className="text-sm font-medium text-white">
@@ -687,12 +588,10 @@ export default function LiveSessionRoom({ session, userProfile, onLeave }: LiveS
                           </span>
                         </div>
                       )}
-                      <div className={`text-sm p-3 rounded-lg ${
+                      <div className={`text-sm ${
                         message.type === 'system' 
-                          ? 'text-gray-400 italic bg-gray-800/50' 
-                          : message.type === 'speak_request'
-                          ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                          : 'text-gray-300 bg-gray-800/50 border border-gray-700/50'
+                          ? 'text-center text-gray-400 italic' 
+                          : 'text-gray-300'
                       }`}>
                         {message.content}
                       </div>
@@ -702,6 +601,7 @@ export default function LiveSessionRoom({ session, userProfile, onLeave }: LiveS
                 <div ref={messagesEndRef} />
               </div>
               
+              {/* Message Input */}
               <div className="p-4 border-t border-gray-700">
                 <div className="flex space-x-2">
                   <input
@@ -709,17 +609,16 @@ export default function LiveSessionRoom({ session, userProfile, onLeave }: LiveS
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    placeholder="Type a message..."
-                    className="flex-1 px-4 py-3 bg-gray-800 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm"
+                    placeholder="Type here to search"
+                    className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 text-sm focus:outline-none focus:border-blue-500"
                   />
-                  <Button
+                  <button
                     onClick={handleSendMessage}
                     disabled={!newMessage.trim()}
-                    size="sm"
-                    className="bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 px-4 py-3 rounded-xl"
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 px-3 py-2 rounded-lg transition-colors"
                   >
-                    <Send className="w-4 h-4" />
-                  </Button>
+                    <Send className="w-4 h-4 text-white" />
+                  </button>
                 </div>
               </div>
             </motion.div>
