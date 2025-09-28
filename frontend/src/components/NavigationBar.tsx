@@ -11,7 +11,18 @@ import {
 import { Button } from '@/components/ui/button';
 
 interface NavigationBarProps {
-  userProfile: any;
+  userProfile: {
+    address: string;
+    username?: string;
+    name?: string;
+    photoUrl?: string;
+    totalStaked: number;
+    totalEarnings: number;
+    balance: string;
+    isLoadingProfile?: boolean;
+    hasFilecoinProfile?: boolean;
+    twitterHandle?: string;
+  };
   onLogout: () => void;
   onProfileClick: () => void;
 }
@@ -78,7 +89,7 @@ export default function NavigationBar({ userProfile, onLogout, onProfileClick }:
               </svg>
             </div>
             <span className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">
-              TalkStake
+              Stake Speaks
             </span>
           </div>
 

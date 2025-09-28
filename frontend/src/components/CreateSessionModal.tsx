@@ -32,7 +32,8 @@ export function CreateSessionModal({
     topics: '',
     requirements: '',
     isPrivate: false,
-    recordingEnabled: true
+    recordingEnabled: true,
+    startLiveNow: false
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -67,7 +68,19 @@ export function CreateSessionModal({
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, checked } = e.target;
-    setFormData(prev => ({ ...prev, [name]: checked }));
+    setFormData(prev => {
+      const newData = { ...prev, [name]: checked };
+      
+      // If "Start Live Now" is checked, set startTime to current time
+      if (name === 'startLiveNow' && checked) {
+        const now = new Date();
+        // Set to current time minus 30 seconds to ensure it's considered live
+        const liveStartTime = new Date(now.getTime() - 30 * 1000);
+        newData.startTime = liveStartTime.toISOString().slice(0, 16);
+      }
+      
+      return newData;
+    });
   };
 
   const validateForm = () => {
@@ -83,11 +96,13 @@ export function CreateSessionModal({
 
     if (!formData.startTime) {
       newErrors.startTime = 'Start time is required';
-    } else {
+    } else if (!formData.startLiveNow) {
       const startDate = new Date(formData.startTime);
       const now = new Date();
-      if (startDate <= now) {
-        newErrors.startTime = 'Start time must be in the future';
+      // Allow sessions to start immediately (within 1 minute) for live sessions
+      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+      if (startDate < oneMinuteAgo) {
+        newErrors.startTime = 'Start time cannot be more than 1 minute in the past';
       }
     }
 
@@ -121,8 +136,8 @@ export function CreateSessionModal({
         speakerAvatar: userPhotoUrl,
         startTime: formData.startTime,
         duration: formData.duration,
-        status: 'scheduled',
-        isLive: false,
+        status: formData.startLiveNow ? 'live' : 'scheduled',
+        isLive: formData.startLiveNow,
         category: formData.category,
         topics: formData.topics.split(',').map(topic => topic.trim()).filter(Boolean),
         maxParticipants: formData.maxParticipants,
@@ -152,7 +167,8 @@ export function CreateSessionModal({
         topics: '',
         requirements: '',
         isPrivate: false,
-        recordingEnabled: true
+        recordingEnabled: true,
+        startLiveNow: false
       });
       
       onClose();
@@ -294,8 +310,8 @@ export function CreateSessionModal({
                   onChange={handleInputChange}
                   className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
                     errors.startTime ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  disabled={isSubmitting}
+                  } ${formData.startLiveNow ? 'opacity-50' : ''}`}
+                  disabled={isSubmitting || formData.startLiveNow}
                 />
                 {errors.startTime && (
                   <p className="text-red-500 text-sm mt-1">{errors.startTime}</p>
@@ -326,6 +342,29 @@ export function CreateSessionModal({
                 )}
               </div>
             </div>
+
+            {/* Start Live Now Checkbox */}
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="startLiveNow"
+                name="startLiveNow"
+                checked={formData.startLiveNow}
+                onChange={handleCheckboxChange}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                disabled={isSubmitting}
+              />
+              <label htmlFor="startLiveNow" className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                🎙️ Start Live Session Now
+              </label>
+            </div>
+            {formData.startLiveNow && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg dark:bg-green-900/20 dark:border-green-800">
+                <p className="text-green-700 dark:text-green-300 text-sm">
+                  ✅ This session will start immediately and be available for participants to join live!
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Participation Settings */}

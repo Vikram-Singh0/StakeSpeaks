@@ -56,10 +56,19 @@ const getEstimatedYield = (totalStaked: number, entryFee: number): number => {
 
 interface SessionDetailsProps {
   session: SpeakerSession | null;
-  userProfile: any;
+  userProfile: {
+    address: string;
+    username?: string;
+    name?: string;
+    photoUrl?: string;
+    totalStaked: number;
+    totalEarnings: number;
+    balance: string;
+  };
+  onJoinSession?: (session: SpeakerSession) => void;
 }
 
-export default function SessionDetails({ session, userProfile }: SessionDetailsProps) {
+export default function SessionDetails({ session, userProfile, onJoinSession }: SessionDetailsProps) {
   if (!session) {
     return (
       <Card>
@@ -165,7 +174,10 @@ export default function SessionDetails({ session, userProfile }: SessionDetailsP
           {/* Action Buttons */}
           <div className="space-y-3">
             {session.isLive ? (
-              <Button className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 animate-glow">
+              <Button 
+                className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 animate-glow"
+                onClick={() => onJoinSession?.(session)}
+              >
                 <Play className="w-4 h-4 mr-2" />
                 Join Live Session
               </Button>

@@ -154,7 +154,7 @@ export class RealWorldDataService {
   /**
    * Verify data integrity using stored proofs
    */
-  async verifyDataIntegrity(data: any, storedProof: string): Promise<boolean> {
+  async verifyDataIntegrity(data: unknown, storedProof: string): Promise<boolean> {
     try {
       const currentProof = await this.createProofHash(JSON.stringify(data));
       return currentProof === storedProof;

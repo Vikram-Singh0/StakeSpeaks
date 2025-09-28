@@ -116,8 +116,8 @@ export default function LandingPage({ onWalletConnected }: LandingPageProps) {
                 </div>
               </div>
               <h1 className="text-6xl md:text-8xl font-bold mb-6">
-                <span className="gradient-text">Talk</span>
-                <span className="text-white">Stake</span>
+                <span className="gradient-text">Stake</span>
+                <span className="text-white">Speaks</span>
               </h1>
               <p className="text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto leading-relaxed">
                 Monetize expert knowledge through staked conversations. 

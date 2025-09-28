@@ -7,6 +7,7 @@ import NavigationBar from './NavigationBar';
 import SearchAndSessionsList from './SearchAndSessionsList';
 import SessionDetails from './SessionDetails';
 import ProfileManager from './ProfileManager';
+import LiveSessionRoom from './LiveSessionRoom';
 import { CreateSessionModal } from './CreateSessionModal';
 import { filecoinStorage, UserProfile, SpeakerSession } from '../services/filecoinStorage';
 
@@ -21,6 +22,7 @@ export default function HomePage() {
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
   const [sessions, setSessions] = useState<SpeakerSession[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [currentLiveSession, setCurrentLiveSession] = useState<SpeakerSession | null>(null);
 
   // Load profile from Filecoin when user connects
   useEffect(() => {
@@ -147,6 +149,14 @@ export default function HomePage() {
     setShowProfileManager(false);
   };
 
+  const handleJoinSession = (session: SpeakerSession) => {
+    setCurrentLiveSession(session);
+  };
+
+  const handleLeaveSession = () => {
+    setCurrentLiveSession(null);
+  };
+
   // Create enhanced profile for navbar (combines wallet + Filecoin data)
   const profile = {
     address: userProfile?.address || '',
@@ -164,6 +174,15 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+      {/* Live Session Room */}
+      {currentLiveSession && (
+        <LiveSessionRoom
+          session={currentLiveSession}
+          userProfile={profile}
+          onLeave={handleLeaveSession}
+        />
+      )}
+
       {/* Navigation Bar */}
       <NavigationBar 
         userProfile={profile} 
@@ -199,6 +218,7 @@ export default function HomePage() {
             <SessionDetails 
               session={selectedSession}
               userProfile={profile}
+              onJoinSession={handleJoinSession}
             />
           </div>
         </motion.div>

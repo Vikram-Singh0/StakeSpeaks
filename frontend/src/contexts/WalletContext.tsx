@@ -96,7 +96,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
           // Try to reconnect to the wallet if it was previously connected
           if (typeof window !== 'undefined' && window.ethereum) {
             try {
-              const accounts = await window.ethereum.request({ method: 'eth_accounts' })
+              const accounts = await window.ethereum.request({ method: 'eth_accounts' }) as string[]
               if (accounts.length > 0 && accounts[0].toLowerCase() === profile.address.toLowerCase()) {
                 setUserProfile(profile)
                 setIsConnected(true)
@@ -121,7 +121,8 @@ export function WalletProvider({ children }: WalletProviderProps) {
 
     // Listen for account changes
     if (typeof window !== 'undefined' && window.ethereum) {
-      const handleAccountsChanged = (accounts: string[]) => {
+      const handleAccountsChanged = (data: unknown) => {
+        const accounts = data as string[]
         if (accounts.length === 0) {
           disconnectWallet()
         } else if (userProfile && accounts[0].toLowerCase() !== userProfile.address.toLowerCase()) {
@@ -130,7 +131,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
         }
       }
 
-      const handleChainChanged = (chainId: string) => {
+      const handleChainChanged = (data: unknown) => {
         // Reload the page when chain changes for now
         window.location.reload()
       }
@@ -139,7 +140,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
       window.ethereum.on('chainChanged', handleChainChanged)
 
       return () => {
-        if (window.ethereum.removeListener) {
+        if (window.ethereum?.removeListener) {
           window.ethereum.removeListener('accountsChanged', handleAccountsChanged)
           window.ethereum.removeListener('chainChanged', handleChainChanged)
         }
@@ -170,7 +171,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
         // Request account access
         const accounts = await window.ethereum.request({
           method: 'eth_requestAccounts'
-        })
+        }) as string[]
 
         if (!accounts || accounts.length === 0) {
           throw new Error('No accounts found. Please unlock MetaMask.')
@@ -179,7 +180,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
         address = accounts[0]
         
         // Get current chain ID
-        chainId = await window.ethereum.request({ method: 'eth_chainId' })
+        chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string
         
         // Create ethers provider
         provider = new ethers.BrowserProvider(window.ethereum)
@@ -266,9 +267,9 @@ export function WalletProvider({ children }: WalletProviderProps) {
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: targetChainId }],
       })
-    } catch (switchError: any) {
+    } catch (switchError: unknown) {
       // If the chain is not added to MetaMask, add it
-      if (switchError.code === 4902) {
+      if ((switchError as { code?: number }).code === 4902) {
         const networkConfig = Object.values(NETWORKS).find(n => n.chainId === targetChainId)
         if (networkConfig) {
           try {

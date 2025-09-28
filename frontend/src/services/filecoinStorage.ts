@@ -256,7 +256,7 @@ export class FilecoinStorage {
   /**
    * Get all uploads from Lighthouse (for debugging)
    */
-  async getAllUploads(): Promise<{ success: boolean; data?: any; error?: string }> {
+  async getAllUploads(): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       console.log('📥 Fetching all uploads from Lighthouse...');
       
@@ -267,7 +267,7 @@ export class FilecoinStorage {
         };
       }
 
-      const allUploads: any[] = [];
+      const allUploads: unknown[] = [];
       let lastKey: string | null = null;
       let requestCount = 0;
       const maxRequests = 5; // Limit for debugging
@@ -333,7 +333,7 @@ export class FilecoinStorage {
   /**
    * Debug session data structure
    */
-  async debugSessionData(): Promise<{ success: boolean; data?: any; error?: string }> {
+  async debugSessionData(): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       console.log('🔍 Debugging session data structure...');
       
@@ -384,7 +384,7 @@ export class FilecoinStorage {
               rawData: sessionData,
               normalizedData: this.ensureSessionHasRatingFields(sessionData)
             },
-            allSessionFiles: sessionFiles.map((file: any) => ({
+            allSessionFiles: sessionFiles.map((file: { fileName: string; cid: string; size: number; uploadDate: string }) => ({
               fileName: file.fileName,
               cid: file.cid,
               fileSizeInBytes: file.fileSizeInBytes,
@@ -464,7 +464,7 @@ export class FilecoinStorage {
   /**
    * Test Lighthouse connection
    */
-  async testLighthouseConnection(): Promise<{ success: boolean; error?: string; details?: any }> {
+  async testLighthouseConnection(): Promise<{ success: boolean; error?: string; details?: unknown }> {
     try {
       console.log('🧪 Testing Lighthouse connection...');
       
@@ -1064,8 +1064,12 @@ export class FilecoinStorage {
       return { ...session };
     }
 
-    // Check if session should be live
-    if (now >= startTime && now <= endTime) {
+    // Allow a 5-minute grace period for sessions to be considered live
+    const gracePeriod = 5 * 60 * 1000; // 5 minutes in milliseconds
+    const adjustedStartTime = new Date(startTime.getTime() - gracePeriod);
+
+    // Check if session should be live (with grace period)
+    if (now >= adjustedStartTime && now <= endTime) {
       newStatus = 'live';
       newIsLive = true;
     }
@@ -1075,7 +1079,7 @@ export class FilecoinStorage {
       newIsLive = false;
     }
     // Session is upcoming
-    else if (now < startTime) {
+    else if (now < adjustedStartTime) {
       newStatus = 'scheduled';
       newIsLive = false;
     }
@@ -1306,8 +1310,8 @@ export class FilecoinStorage {
   /**
    * Upload to Lighthouse with retry mechanism
    */
-  private async uploadToLighthouseWithRetry(files: File[], maxRetries: number = 3): Promise<any> {
-    let lastError: any;
+  private async uploadToLighthouseWithRetry(files: File[], maxRetries: number = 3): Promise<unknown> {
+    let lastError: unknown;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -1339,8 +1343,8 @@ export class FilecoinStorage {
   /**
    * Fetch from Lighthouse gateway with retry mechanism
    */
-  private async fetchFromLighthouseWithRetry(hash: string, maxRetries: number = 3): Promise<any> {
-    let lastError: any;
+  private async fetchFromLighthouseWithRetry(hash: string, maxRetries: number = 3): Promise<unknown> {
+    let lastError: unknown;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -1668,7 +1672,7 @@ export class FilecoinStorage {
     console.log('🧪 Creating test sessions...');
     for (const sessionData of testSessions) {
       try {
-        await this.createSpeakerSession(sessionData as any);
+        await this.createSpeakerSession(sessionData as SpeakerSession);
         console.log(`✅ Created test session: ${sessionData.title}`);
       } catch (error) {
         console.error(`❌ Failed to create test session: ${sessionData.title}`, error);
@@ -1722,7 +1726,7 @@ export class FilecoinStorage {
   /**
    * Ensure session has all required fields and normalize data structure
    */
-  private ensureSessionHasRatingFields(session: any): SpeakerSession {
+  private ensureSessionHasRatingFields(session: unknown): SpeakerSession {
     const defaults = this.getDefaultRatingValues();
     
     // Normalize and validate session data
@@ -1802,12 +1806,16 @@ export class FilecoinStorage {
       normalizedSession.endTime = endTime.toISOString();
     }
 
-    // Update status based on current time
+    // Update status based on current time with grace period
     const now = new Date();
     const startTime = new Date(normalizedSession.startTime);
     const endTime = new Date(normalizedSession.endTime);
+    
+    // Allow a 5-minute grace period for sessions to be considered live
+    const gracePeriod = 5 * 60 * 1000; // 5 minutes in milliseconds
+    const adjustedStartTime = new Date(startTime.getTime() - gracePeriod);
 
-    if (now >= startTime && now <= endTime) {
+    if (now >= adjustedStartTime && now <= endTime) {
       normalizedSession.status = 'live';
       normalizedSession.isLive = true;
     } else if (now > endTime) {

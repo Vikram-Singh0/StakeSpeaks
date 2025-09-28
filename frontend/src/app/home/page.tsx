@@ -42,5 +42,5 @@ export default function Home() {
     return null // Will redirect to landing page
   }
 
-  return <HomePage userProfile={userProfile} onDisconnect={handleDisconnect} />
+  return <HomePage />
 }
