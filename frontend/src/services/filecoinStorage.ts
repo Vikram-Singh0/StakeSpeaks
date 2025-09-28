@@ -73,11 +73,14 @@ export class FilecoinStorage {
 
   constructor() {
     this.apiKey = process.env.NEXT_PUBLIC_LIGHTHOUSE_API_KEY || '';
-    this.isDemoMode = !this.apiKey || this.apiKey === 'your-lighthouse-api-key-here';
+    this.isDemoMode = !this.apiKey || this.apiKey === 'your-lighthouse-api-key-here' || this.apiKey.length < 10;
     
     if (this.isDemoMode) {
-      console.log('🔧 Running in DEMO mode - profile data will be stored locally');
+      console.log('🔧 Running in DEMO mode - data will be stored locally');
       console.log('📝 To use real Filecoin storage, get an API key from https://files.lighthouse.storage/');
+      console.log('🔑 Current API key status:', this.apiKey ? 'Present but invalid' : 'Not provided');
+    } else {
+      console.log('🚀 Running in PRODUCTION mode with Lighthouse API');
     }
   }
 
@@ -111,7 +114,10 @@ export class FilecoinStorage {
       });
 
       console.log('🚀 Uploading to Filecoin via Lighthouse...');
-      const uploadResponse = await lighthouse.upload([file], this.apiKey);
+      console.log('📊 File size:', file.size, 'bytes');
+      console.log('🔑 Using API key:', this.apiKey.substring(0, 8) + '...');
+      
+      const uploadResponse = await this.uploadToLighthouseWithRetry([file], 3);
       
       if (uploadResponse?.data?.Hash) {
         const hash = uploadResponse.data.Hash;
@@ -122,6 +128,7 @@ export class FilecoinStorage {
         
         return hash;
       } else {
+        console.error('❌ Upload response structure:', uploadResponse);
         throw new Error('Failed to get hash from Lighthouse upload response');
       }
     } catch (error) {
@@ -148,31 +155,48 @@ export class FilecoinStorage {
     try {
       console.log('🔍 Loading user profile for:', walletAddress);
 
-      // Check localStorage first (for demo mode or cached data)
+      // In demo mode, check localStorage first
+      if (this.isDemoMode) {
+        const localData = localStorage.getItem(`talkstake-profile-${walletAddress}`);
+        if (localData) {
+          const parsed = JSON.parse(localData);
+          console.log('📱 Profile loaded from localStorage (demo mode)');
+          return parsed;
+        }
+        return null;
+      }
+
+      // Try to find profile in database using getUploads
+      try {
+        console.log('🌐 Searching for profile in Lighthouse database...');
+        const profile = await this.findProfileInDatabase(walletAddress);
+        if (profile) {
+          console.log('✅ Profile loaded from Lighthouse database');
+          return profile;
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to search profile in database:', error);
+      }
+
+      // Fallback to localStorage hash method
+      const hash = localStorage.getItem(`talkstake-hash-${walletAddress}`);
+      if (hash && hash !== 'demo-mode' && !hash.startsWith('demo-hash-') && !hash.startsWith('fallback-')) {
+        try {
+          console.log('🌐 Fetching profile from Filecoin database with hash:', hash);
+          const profileData = await this.fetchFromLighthouseWithRetry(hash);
+          console.log('✅ Profile loaded from Filecoin database');
+          return profileData;
+        } catch (error) {
+          console.warn('⚠️ Failed to fetch from Filecoin database:', error);
+        }
+      }
+
+      // Fallback to localStorage if database fetch fails
       const localData = localStorage.getItem(`talkstake-profile-${walletAddress}`);
       if (localData) {
         const parsed = JSON.parse(localData);
-        console.log('📱 Profile loaded from local storage');
+        console.log('📱 Profile loaded from localStorage (fallback)');
         return parsed;
-      }
-
-      // If not in demo mode, try to fetch from Filecoin
-      if (!this.isDemoMode) {
-        const hash = localStorage.getItem(`talkstake-hash-${walletAddress}`);
-        if (hash && hash !== 'demo-mode') {
-          try {
-            console.log('🌐 Fetching from Filecoin with hash:', hash);
-            const response = await fetch(`https://gateway.lighthouse.storage/ipfs/${hash}`);
-            
-            if (response.ok) {
-              const profileData = await response.json();
-              console.log('✅ Profile loaded from Filecoin');
-              return profileData;
-            }
-          } catch (error) {
-            console.warn('⚠️ Failed to fetch from Filecoin, checking local storage');
-          }
-        }
       }
 
       console.log('❌ No profile found for wallet:', walletAddress);
@@ -222,9 +246,294 @@ export class FilecoinStorage {
   getStorageInfo() {
     return {
       isDemoMode: this.isDemoMode,
-      apiKeyConfigured: !!this.apiKey && this.apiKey !== 'your-lighthouse-api-key-here',
-      storageType: this.isDemoMode ? 'localStorage (Demo)' : 'Filecoin via Lighthouse'
+      apiKeyConfigured: !!this.apiKey && this.apiKey !== 'your-lighthouse-api-key-here' && this.apiKey.length >= 10,
+      storageType: this.isDemoMode ? 'localStorage (Demo)' : 'Filecoin via Lighthouse',
+      apiKeyLength: this.apiKey.length,
+      apiKeyPreview: this.apiKey ? this.apiKey.substring(0, 8) + '...' : 'Not set'
     };
+  }
+
+  /**
+   * Get all uploads from Lighthouse (for debugging)
+   */
+  async getAllUploads(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      console.log('📥 Fetching all uploads from Lighthouse...');
+      
+      if (this.isDemoMode) {
+        return {
+          success: false,
+          error: 'Running in demo mode - no API key configured'
+        };
+      }
+
+      const allUploads: any[] = [];
+      let lastKey: string | null = null;
+      let requestCount = 0;
+      const maxRequests = 5; // Limit for debugging
+
+      do {
+        console.log(`📥 Fetching uploads batch ${requestCount + 1}${lastKey ? ` (from key: ${lastKey})` : ''}...`);
+        
+        const response = await lighthouse.getUploads(this.apiKey, lastKey);
+        
+        if (!response?.data?.fileList) {
+          console.warn('⚠️ Invalid response structure from getUploads:', response);
+          break;
+        }
+
+        const fileList = response.data.fileList;
+        console.log(`📋 Received ${fileList.length} files from Lighthouse`);
+        
+        allUploads.push(...fileList);
+
+        // Check if we should continue fetching
+        if (fileList.length === 0 || requestCount >= maxRequests - 1) {
+          console.log('🏁 No more files to fetch or reached max requests');
+          break;
+        }
+
+        // Set lastKey for next request
+        lastKey = fileList[fileList.length - 1]?.id || null;
+        requestCount++;
+
+      } while (lastKey && requestCount < maxRequests);
+
+      console.log(`✅ Retrieved ${allUploads.length} total uploads from Lighthouse`);
+      
+      // Filter and categorize files
+      const sessionFiles = allUploads.filter(file => 
+        file.fileName && file.fileName.startsWith('talkstake-session-') && file.fileName.endsWith('.json')
+      );
+      
+      const profileFiles = allUploads.filter(file => 
+        file.fileName && file.fileName.startsWith('talkstake-profile-') && file.fileName.endsWith('.json')
+      );
+
+      return {
+        success: true,
+        data: {
+          totalFiles: allUploads.length,
+          sessionFiles: sessionFiles.length,
+          profileFiles: profileFiles.length,
+          allFiles: allUploads,
+          sessionFileList: sessionFiles,
+          profileFileList: profileFiles
+        }
+      };
+    } catch (error) {
+      console.error('❌ Error fetching uploads:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Debug session data structure
+   */
+  async debugSessionData(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      console.log('🔍 Debugging session data structure...');
+      
+      if (this.isDemoMode) {
+        return {
+          success: false,
+          error: 'Running in demo mode - no API key configured'
+        };
+      }
+
+      // Get all uploads to see what's in the database
+      const uploads = await this.getAllUploads();
+      
+      if (!uploads.success) {
+        return uploads;
+      }
+
+      const sessionFiles = uploads.data.sessionFileList;
+      console.log(`📊 Found ${sessionFiles.length} session files in database`);
+
+      if (sessionFiles.length === 0) {
+        return {
+          success: true,
+          data: {
+            message: 'No session files found in database',
+            totalFiles: uploads.data.totalFiles,
+            allFiles: uploads.data.allFiles.slice(0, 5) // Show first 5 files for debugging
+          }
+        };
+      }
+
+      // Try to fetch the first session file to see its structure
+      const firstSessionFile = sessionFiles[0];
+      console.log(`🔍 Analyzing first session file: ${firstSessionFile.fileName}`);
+      
+      try {
+        const sessionData = await this.fetchFromLighthouseWithRetry(firstSessionFile.cid);
+        
+        return {
+          success: true,
+          data: {
+            totalSessionFiles: sessionFiles.length,
+            firstSessionFile: {
+              fileName: firstSessionFile.fileName,
+              cid: firstSessionFile.cid,
+              fileSizeInBytes: firstSessionFile.fileSizeInBytes,
+              createdAt: firstSessionFile.createdAt,
+              rawData: sessionData,
+              normalizedData: this.ensureSessionHasRatingFields(sessionData)
+            },
+            allSessionFiles: sessionFiles.map((file: any) => ({
+              fileName: file.fileName,
+              cid: file.cid,
+              fileSizeInBytes: file.fileSizeInBytes,
+              createdAt: file.createdAt
+            }))
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to fetch session data: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          data: {
+            sessionFile: firstSessionFile,
+            error: error
+          }
+        };
+      }
+    } catch (error) {
+      console.error('❌ Error debugging session data:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Test different IPFS gateways to find the best one
+   */
+  async testGateways(testHash: string): Promise<{ success: boolean; workingGateways?: string[]; error?: string }> {
+    try {
+      console.log('🧪 Testing different IPFS gateways...');
+      
+      const gateways = [
+        'https://gateway.lighthouse.storage/ipfs/',
+        'https://ipfs.io/ipfs/',
+        'https://gateway.pinata.cloud/ipfs/',
+        'https://cloudflare-ipfs.com/ipfs/',
+        'https://dweb.link/ipfs/'
+      ];
+      
+      const workingGateways: string[] = [];
+      
+      for (const gateway of gateways) {
+        try {
+          console.log(`🔍 Testing gateway: ${gateway}`);
+          const response = await fetch(`${gateway}${testHash}`, {
+            method: 'GET',
+            mode: 'cors'
+          });
+          
+          if (response.ok) {
+            workingGateways.push(gateway);
+            console.log(`✅ Gateway working: ${gateway}`);
+          } else {
+            console.log(`❌ Gateway failed: ${gateway} (${response.status})`);
+          }
+        } catch (error) {
+          console.log(`❌ Gateway error: ${gateway}`, error);
+        }
+      }
+      
+      return {
+        success: workingGateways.length > 0,
+        workingGateways,
+        error: workingGateways.length === 0 ? 'No working gateways found' : undefined
+      };
+    } catch (error) {
+      console.error('❌ Gateway testing failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Test Lighthouse connection
+   */
+  async testLighthouseConnection(): Promise<{ success: boolean; error?: string; details?: any }> {
+    try {
+      console.log('🧪 Testing Lighthouse connection...');
+      
+      if (this.isDemoMode) {
+        return {
+          success: false,
+          error: 'Running in demo mode - no API key configured',
+          details: { mode: 'demo', apiKey: this.apiKey }
+        };
+      }
+
+      // Create a small test file
+      const testData = {
+        test: true,
+        timestamp: new Date().toISOString(),
+        message: 'Lighthouse connection test'
+      };
+      
+      const testJson = JSON.stringify(testData, null, 2);
+      const blob = new Blob([testJson], { type: 'application/json' });
+      const file = new File([blob], 'lighthouse-test.json', { type: 'application/json' });
+
+      console.log('🚀 Uploading test file to Lighthouse...');
+      const uploadResponse = await this.uploadToLighthouseWithRetry([file], 2);
+      
+      if (uploadResponse?.data?.Hash) {
+        const hash = uploadResponse.data.Hash;
+        console.log('✅ Test upload successful, hash:', hash);
+        
+        // Test gateways first
+        const gatewayTest = await this.testGateways(hash);
+        
+        // Try to fetch it back
+        console.log('🌐 Testing fetch from Lighthouse...');
+        const fetchData = await this.fetchFromLighthouseWithRetry(hash, 2);
+        
+        if (fetchData && fetchData.test === true) {
+          console.log('✅ Lighthouse connection test successful!');
+          return {
+            success: true,
+            details: {
+              uploadHash: hash,
+              fetchData: fetchData,
+              apiKeyPreview: this.apiKey.substring(0, 8) + '...',
+              workingGateways: gatewayTest.workingGateways
+            }
+          };
+        } else {
+          return {
+            success: false,
+            error: 'Fetch test failed - data mismatch',
+            details: { hash, fetchData, workingGateways: gatewayTest.workingGateways }
+          };
+        }
+      } else {
+        return {
+          success: false,
+          error: 'Upload test failed - no hash returned',
+          details: uploadResponse
+        };
+      }
+    } catch (error) {
+      console.error('❌ Lighthouse connection test failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        details: { error }
+      };
+    }
   }
 
   /**
@@ -358,7 +667,10 @@ export class FilecoinStorage {
       });
 
       console.log('🚀 Uploading session to Filecoin via Lighthouse...');
-      const uploadResponse = await lighthouse.upload([file], this.apiKey);
+      console.log('📊 Session file size:', file.size, 'bytes');
+      console.log('🔑 Using API key:', this.apiKey.substring(0, 8) + '...');
+      
+      const uploadResponse = await this.uploadToLighthouseWithRetry([file], 3);
       
       if (uploadResponse?.data?.Hash) {
         const hash = uploadResponse.data.Hash;
@@ -376,6 +688,7 @@ export class FilecoinStorage {
         
         return hash;
       } else {
+        console.error('❌ Session upload response structure:', uploadResponse);
         throw new Error('Failed to get hash from Lighthouse upload response');
       }
     } catch (error) {
@@ -405,28 +718,22 @@ export class FilecoinStorage {
   }
 
   /**
-   * Get all sessions from Filecoin storage
+   * Load sessions from localStorage (for demo mode only)
    */
-  async getAllSessions(): Promise<SpeakerSession[]> {
+  private loadSessionsFromLocalStorage(): SpeakerSession[] {
     try {
-      console.log('📥 Loading all sessions from storage...');
-      
-      // Clean up duplicates first
-      await this.cleanupDuplicateSessions();
-      
+      console.log('📥 Loading sessions from localStorage...');
       const sessionsIndex = this.getSessionsIndex();
       const sessions: SpeakerSession[] = [];
-      const seenSessionIds = new Set<string>(); // Additional deduplication
+      const seenSessionIds = new Set<string>();
 
       for (const sessionId of sessionsIndex) {
-        if (seenSessionIds.has(sessionId)) {
-          console.warn(`⚠️ Skipping duplicate session ID: ${sessionId}`);
-          continue;
-        }
+        if (seenSessionIds.has(sessionId)) continue;
         
         try {
-          const session = await this.getSpeakerSession(sessionId);
-          if (session) {
+          const sessionData = localStorage.getItem(`talkstake-session-${sessionId}`);
+          if (sessionData) {
+            const session = this.ensureSessionHasRatingFields(JSON.parse(sessionData));
             sessions.push(session);
             seenSessionIds.add(sessionId);
           }
@@ -438,12 +745,142 @@ export class FilecoinStorage {
       // Sort by creation date (newest first)
       sessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-      console.log(`✅ Loaded ${sessions.length} unique sessions from storage`);
+      console.log(`✅ Loaded ${sessions.length} unique sessions from localStorage`);
       return sessions;
-
     } catch (error) {
-      console.error('❌ Error loading sessions:', error);
+      console.error('❌ Error loading sessions from localStorage:', error);
       return [];
+    }
+  }
+
+  /**
+   * Fetch sessions from Lighthouse database using getUploads method
+   */
+  private async fetchSessionsFromDatabaseSafe(): Promise<SpeakerSession[]> {
+    try {
+      console.log('🌐 Fetching all sessions from Lighthouse database using getUploads...');
+      
+      if (this.isDemoMode) {
+        console.log('🔧 Demo mode: Using localStorage fallback');
+        return this.loadSessionsFromLocalStorage();
+      }
+
+      const sessions: SpeakerSession[] = [];
+      const seenSessionIds = new Set<string>(); // Track unique session IDs
+      let lastKey: string | null = null;
+      let totalFetched = 0;
+      const maxRequests = 10; // Prevent infinite loops
+      let requestCount = 0;
+
+      do {
+        try {
+          console.log(`📥 Fetching uploads batch ${requestCount + 1}${lastKey ? ` (from key: ${lastKey})` : ''}...`);
+          
+          const response = await lighthouse.getUploads(this.apiKey, lastKey);
+          
+          if (!response?.data?.fileList) {
+            console.warn('⚠️ Invalid response structure from getUploads:', response);
+            break;
+          }
+
+          const fileList = response.data.fileList;
+          console.log(`📋 Received ${fileList.length} files from Lighthouse`);
+          
+          // Filter for session files
+          const sessionFiles = fileList.filter(file => 
+            file.fileName && file.fileName.startsWith('talkstake-session-') && file.fileName.endsWith('.json')
+          );
+          
+          console.log(`🎯 Found ${sessionFiles.length} session files in this batch`);
+
+          // Fetch each session file content
+          for (const file of sessionFiles) {
+            try {
+              console.log(`🔍 Fetching session file: ${file.fileName} (CID: ${file.cid})`);
+              console.log(`📊 File info: Size ${file.fileSizeInBytes} bytes, Created ${file.createdAt}`);
+              
+              const sessionData = await this.fetchFromLighthouseWithRetry(file.cid);
+              
+              // Validate that we got valid session data
+              if (!sessionData || typeof sessionData !== 'object') {
+                console.warn(`⚠️ Invalid session data for ${file.fileName}:`, sessionData);
+                continue;
+              }
+
+              // Add file metadata to session data
+              const enrichedSessionData = {
+                ...sessionData,
+                filecoinHash: file.cid,
+                fileSizeInBytes: file.fileSizeInBytes,
+                fileCreatedAt: file.createdAt,
+                fileLastUpdate: file.lastUpdate
+              };
+
+              const session = this.ensureSessionHasRatingFields(enrichedSessionData);
+              
+              // Check for duplicate session IDs
+              if (seenSessionIds.has(session.id)) {
+                console.warn(`⚠️ Duplicate session ID detected: ${session.id} - skipping`);
+                continue;
+              }
+              
+              // Add to seen set and sessions array
+              seenSessionIds.add(session.id);
+              sessions.push(session);
+              
+              console.log(`✅ Loaded session from database: ${session.title} (${session.status})`);
+              console.log(`📅 Session time: ${session.startTime} - ${session.endTime}`);
+              totalFetched++;
+            } catch (error) {
+              console.warn(`⚠️ Failed to fetch session file ${file.fileName}:`, error);
+              
+              // Try to get more details about the error
+              if (error instanceof Error) {
+                console.warn(`   Error message: ${error.message}`);
+                console.warn(`   Error stack: ${error.stack}`);
+              }
+            }
+          }
+
+          // Check if we should continue fetching
+          const totalFiles = response.data.totalFiles || 0;
+          console.log(`📊 Total files in database: ${totalFiles}, fetched so far: ${totalFetched}`);
+          
+          if (fileList.length === 0 || requestCount >= maxRequests - 1) {
+            console.log('🏁 No more files to fetch or reached max requests');
+            break;
+          }
+
+          // Set lastKey for next request
+          lastKey = fileList[fileList.length - 1]?.id || null;
+          requestCount++;
+
+        } catch (error) {
+          console.error(`❌ Error fetching uploads batch ${requestCount + 1}:`, error);
+          break;
+        }
+      } while (lastKey && requestCount < maxRequests);
+
+      // Final deduplication check (in case of any edge cases)
+      const uniqueSessions = sessions.filter((session, index, self) => 
+        index === self.findIndex(s => s.id === session.id)
+      );
+
+      if (uniqueSessions.length !== sessions.length) {
+        console.warn(`🧹 Removed ${sessions.length - uniqueSessions.length} duplicate sessions`);
+      }
+
+      // Sort by creation date (newest first)
+      uniqueSessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      console.log(`✅ Loaded ${uniqueSessions.length} unique sessions from Lighthouse database`);
+      return uniqueSessions;
+    } catch (error) {
+      console.error('❌ Error fetching sessions from database:', error);
+      
+      // Fallback to localStorage if database fetch fails completely
+      console.log('🔄 Falling back to localStorage...');
+      return this.loadSessionsFromLocalStorage();
     }
   }
 
@@ -452,34 +889,41 @@ export class FilecoinStorage {
    */
   async getSpeakerSession(sessionId: string): Promise<SpeakerSession | null> {
     try {
-      // Check localStorage first (for demo mode or cached data)
-      const localData = localStorage.getItem(`talkstake-session-${sessionId}`);
-      if (localData) {
-        const parsed = JSON.parse(localData);
-        // Ensure backward compatibility by adding missing rating fields
-        return this.ensureSessionHasRatingFields(parsed);
+      console.log('🔍 Loading session:', sessionId);
+
+      // In demo mode, check localStorage first
+      if (this.isDemoMode) {
+        const localData = localStorage.getItem(`talkstake-session-${sessionId}`);
+        if (localData) {
+          const parsed = JSON.parse(localData);
+          console.log('📱 Session loaded from localStorage (demo mode)');
+          return this.ensureSessionHasRatingFields(parsed);
+        }
+        return null;
       }
 
-      // If not in demo mode, try to fetch from Filecoin
-      if (!this.isDemoMode) {
-        const hash = localStorage.getItem(`talkstake-session-hash-${sessionId}`);
-        if (hash && hash !== 'demo-mode') {
-          try {
-            console.log('🌐 Fetching session from Filecoin with hash:', hash);
-            const response = await fetch(`https://gateway.lighthouse.storage/ipfs/${hash}`);
-            
-            if (response.ok) {
-              const sessionData = await response.json();
-              console.log('✅ Session loaded from Filecoin');
-              // Ensure backward compatibility by adding missing rating fields
-              return this.ensureSessionHasRatingFields(sessionData);
-            }
-          } catch (error) {
-            console.warn('⚠️ Failed to fetch from Filecoin, checking local storage');
-          }
+      // In production mode, always fetch from database first
+      const hash = localStorage.getItem(`talkstake-session-hash-${sessionId}`);
+      if (hash && hash !== 'demo-mode' && !hash.startsWith('demo-hash-') && !hash.startsWith('fallback-')) {
+        try {
+          console.log('🌐 Fetching session from Filecoin database with hash:', hash);
+          const sessionData = await this.fetchFromLighthouseWithRetry(hash);
+          console.log('✅ Session loaded from Filecoin database');
+          return this.ensureSessionHasRatingFields(sessionData);
+        } catch (error) {
+          console.warn('⚠️ Failed to fetch from Filecoin database:', error);
         }
       }
 
+      // Fallback to localStorage if database fetch fails
+      const localData = localStorage.getItem(`talkstake-session-${sessionId}`);
+      if (localData) {
+        const parsed = JSON.parse(localData);
+        console.log('📱 Session loaded from localStorage (fallback)');
+        return this.ensureSessionHasRatingFields(parsed);
+      }
+
+      console.log('❌ Session not found:', sessionId);
       return null;
     } catch (error) {
       console.error('❌ Error loading session:', error);
@@ -510,6 +954,28 @@ export class FilecoinStorage {
     } catch (error) {
       console.error('❌ Error updating session:', error);
       return null;
+    }
+  }
+
+  /**
+   * Get all sessions from storage (Lighthouse database or localStorage in demo mode)
+   */
+  async getAllSessions(): Promise<SpeakerSession[]> {
+    try {
+      console.log('📥 Loading all sessions from storage...');
+      
+      if (this.isDemoMode) {
+        console.log('🔧 Demo mode: Loading from localStorage');
+        return this.loadSessionsFromLocalStorage();
+      }
+      
+      // Always fetch from database in production mode
+      console.log('🌐 Production mode: Fetching from Lighthouse database');
+      return await this.fetchSessionsFromDatabaseSafe();
+      
+    } catch (error) {
+      console.error('❌ Error loading sessions:', error);
+      return [];
     }
   }
 
@@ -682,18 +1148,51 @@ export class FilecoinStorage {
   }
 
   /**
-   * Clean up duplicate sessions from index
+   * Clean up duplicate sessions from index and database
    */
   async cleanupDuplicateSessions(): Promise<void> {
     try {
+      console.log('🧹 Starting duplicate session cleanup...');
+      
+      // Clean up localStorage index
       const sessionsIndex = this.getSessionsIndex();
       const uniqueSessionIds = [...new Set(sessionsIndex)]; // Remove duplicates
       
       if (uniqueSessionIds.length !== sessionsIndex.length) {
-        console.log(`🧹 Cleaning up ${sessionsIndex.length - uniqueSessionIds.length} duplicate session entries...`);
+        console.log(`🧹 Cleaning up ${sessionsIndex.length - uniqueSessionIds.length} duplicate session entries in index...`);
         localStorage.setItem('talkstake-sessions-index', JSON.stringify(uniqueSessionIds));
         console.log('✅ Session index cleaned up');
       }
+
+      // Clean up localStorage data
+      const allKeys = Object.keys(localStorage);
+      const sessionKeys = allKeys.filter(key => key.startsWith('talkstake-session-'));
+      const sessionHashKeys = allKeys.filter(key => key.startsWith('talkstake-session-hash-'));
+      
+      console.log(`📊 Found ${sessionKeys.length} session data entries and ${sessionHashKeys.length} session hash entries`);
+      
+      // Remove orphaned entries (data without hash or hash without data)
+      let removedCount = 0;
+      for (const sessionId of uniqueSessionIds) {
+        const hasData = sessionKeys.includes(`talkstake-session-${sessionId}`);
+        const hasHash = sessionHashKeys.includes(`talkstake-session-hash-${sessionId}`);
+        
+        if (!hasData && hasHash) {
+          localStorage.removeItem(`talkstake-session-hash-${sessionId}`);
+          removedCount++;
+          console.log(`🗑️ Removed orphaned hash for session: ${sessionId}`);
+        }
+        
+        if (hasData && !hasHash) {
+          // This is okay - might be demo mode data
+        }
+      }
+      
+      if (removedCount > 0) {
+        console.log(`✅ Removed ${removedCount} orphaned entries`);
+      }
+      
+      console.log('✅ Duplicate session cleanup completed');
     } catch (error) {
       console.error('❌ Error cleaning up sessions:', error);
     }
@@ -732,6 +1231,181 @@ export class FilecoinStorage {
       console.error('❌ Error deleting session:', error);
       return false;
     }
+  }
+
+  // ==================== LIGHTHOUSE UTILITIES ====================
+
+  /**
+   * Find profile in database using getUploads
+   */
+  private async findProfileInDatabase(walletAddress: string): Promise<UserProfile | null> {
+    try {
+      let lastKey: string | null = null;
+      const maxRequests = 5; // Limit search to prevent excessive requests
+      let requestCount = 0;
+
+      do {
+        console.log(`🔍 Searching for profile batch ${requestCount + 1}${lastKey ? ` (from key: ${lastKey})` : ''}...`);
+        
+        const response = await lighthouse.getUploads(this.apiKey, lastKey);
+        
+        if (!response?.data?.fileList) {
+          console.warn('⚠️ Invalid response structure from getUploads:', response);
+          break;
+        }
+
+        const fileList = response.data.fileList;
+        
+        // Filter for profile files matching the wallet address
+        const profileFiles = fileList.filter(file => 
+          file.fileName && 
+          file.fileName.startsWith('talkstake-profile-') && 
+          file.fileName.includes(walletAddress) &&
+          file.fileName.endsWith('.json')
+        );
+        
+        console.log(`🎯 Found ${profileFiles.length} profile files for wallet ${walletAddress}`);
+
+        // Fetch the profile file content
+        for (const file of profileFiles) {
+          try {
+            console.log(`🔍 Fetching profile file: ${file.fileName} (CID: ${file.cid})`);
+            
+            const profileData = await this.fetchFromLighthouseWithRetry(file.cid);
+            
+            // Verify this is the correct profile
+            if (profileData.walletAddress === walletAddress) {
+              console.log(`✅ Found matching profile for wallet: ${walletAddress}`);
+              return profileData;
+            }
+          } catch (error) {
+            console.warn(`⚠️ Failed to fetch profile file ${file.fileName}:`, error);
+          }
+        }
+
+        // Check if we should continue searching
+        if (fileList.length === 0 || requestCount >= maxRequests - 1) {
+          console.log('🏁 No more files to search or reached max requests');
+          break;
+        }
+
+        // Set lastKey for next request
+        lastKey = fileList[fileList.length - 1]?.id || null;
+        requestCount++;
+
+      } while (lastKey && requestCount < maxRequests);
+
+      console.log(`❌ Profile not found for wallet: ${walletAddress}`);
+      return null;
+    } catch (error) {
+      console.error('❌ Error searching for profile in database:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Upload to Lighthouse with retry mechanism
+   */
+  private async uploadToLighthouseWithRetry(files: File[], maxRetries: number = 3): Promise<any> {
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🚀 Lighthouse upload attempt ${attempt}/${maxRetries}...`);
+        
+        const response = await lighthouse.upload(files, this.apiKey);
+        
+        if (response && response.data && response.data.Hash) {
+          console.log(`✅ Lighthouse upload successful on attempt ${attempt}`);
+          return response;
+        } else {
+          throw new Error(`Invalid response structure: ${JSON.stringify(response)}`);
+        }
+      } catch (error) {
+        lastError = error;
+        console.warn(`⚠️ Lighthouse upload attempt ${attempt} failed:`, error);
+        
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+          console.log(`⏳ Waiting ${delay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    throw new Error(`Lighthouse upload failed after ${maxRetries} attempts. Last error: ${lastError?.message || lastError}`);
+  }
+
+  /**
+   * Fetch from Lighthouse gateway with retry mechanism
+   */
+  private async fetchFromLighthouseWithRetry(hash: string, maxRetries: number = 3): Promise<any> {
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🌐 Lighthouse fetch attempt ${attempt}/${maxRetries} for hash: ${hash}`);
+        
+        // Use simple fetch without problematic headers to avoid CORS issues
+        const response = await fetch(`https://gateway.lighthouse.storage/ipfs/${hash}`, {
+          method: 'GET',
+          mode: 'cors',
+          headers: {
+            'Accept': 'application/json'
+            // Removed Cache-Control header that was causing CORS issues
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`✅ Lighthouse fetch successful on attempt ${attempt}`);
+          return data;
+        } else {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+      } catch (error) {
+        lastError = error;
+        console.warn(`⚠️ Lighthouse fetch attempt ${attempt} failed:`, error);
+        
+        // If it's a CORS error or network error, try alternative gateways
+        if (error instanceof Error && (error.message.includes('CORS') || error.message.includes('Failed to fetch'))) {
+          console.log('🔄 CORS/Network error detected, trying alternative gateways...');
+          
+          const alternativeGateways = [
+            'https://ipfs.io/ipfs/',
+            'https://gateway.pinata.cloud/ipfs/',
+            'https://cloudflare-ipfs.com/ipfs/',
+            'https://dweb.link/ipfs/'
+          ];
+          
+          for (const gateway of alternativeGateways) {
+            try {
+              console.log(`🔄 Trying alternative gateway: ${gateway}`);
+              const altResponse = await fetch(`${gateway}${hash}`, {
+                method: 'GET',
+                mode: 'cors'
+              });
+              
+              if (altResponse.ok) {
+                const data = await altResponse.json();
+                console.log(`✅ Alternative gateway fetch successful: ${gateway}`);
+                return data;
+              }
+            } catch (altError) {
+              console.warn(`⚠️ Alternative gateway failed: ${gateway}`, altError);
+            }
+          }
+        }
+        
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+          console.log(`⏳ Waiting ${delay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    throw new Error(`Lighthouse fetch failed after ${maxRetries} attempts. Last error: ${lastError?.message || lastError}`);
   }
 
   // ==================== RATING SYSTEM ====================
@@ -948,18 +1622,18 @@ export class FilecoinStorage {
         speakerAddress: "0x1234567890123456789012345678901234567890",
         speakerAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=john",
         startTime: new Date(now.getTime() - 10 * 60 * 1000).toISOString(), // Started 10 minutes ago
-        duration: 60, // 1 hour total
+        duration: 60, // 1 hour session
         category: "Technology",
-        topics: ["blockchain", "basics"],
-        entryFee: 0.01,
-        requirements: "Basic knowledge of technology",
+        topics: ["blockchain", "basics", "fundamentals"],
+        entryFee: 0.02,
+        requirements: "Basic understanding of technology",
         isPrivate: false,
         recordingEnabled: true,
         maxParticipants: 100
       },
       {
         title: "Upcoming Session - DeFi Strategies",
-        description: "Learn advanced DeFi strategies starting in 30 minutes",
+        description: "Advanced DeFi strategies starting in 30 minutes",
         speaker: "Sarah Crypto",
         speakerAddress: "0x2345678901234567890123456789012345678901",
         speakerAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=sarah",
@@ -1004,6 +1678,24 @@ export class FilecoinStorage {
   }
 
   /**
+   * Initialize with test data if no sessions exist
+   */
+  async initializeWithTestData(): Promise<void> {
+    try {
+      const existingSessions = await this.getAllSessions();
+      
+      if (existingSessions.length === 0) {
+        console.log('🚀 No sessions found, initializing with test data...');
+        await this.createTestSessions();
+      } else {
+        console.log(`📊 Found ${existingSessions.length} existing sessions, skipping test data creation`);
+      }
+    } catch (error) {
+      console.error('❌ Error initializing test data:', error);
+    }
+  }
+
+  /**
    * Clear all sessions (for development/testing)
    */
   async clearAllSessions(): Promise<void> {
@@ -1028,22 +1720,106 @@ export class FilecoinStorage {
   }
 
   /**
-   * Ensure session has all rating fields (for backward compatibility)
+   * Ensure session has all required fields and normalize data structure
    */
   private ensureSessionHasRatingFields(session: any): SpeakerSession {
     const defaults = this.getDefaultRatingValues();
     
-    return {
-      ...session,
-      // Add missing rating fields with defaults if they don't exist
-      averageRating: session.averageRating ?? defaults.averageRating,
-      totalRatings: session.totalRatings ?? defaults.totalRatings,
-      speakerRating: session.speakerRating ?? defaults.speakerRating,
-      engagementScore: session.engagementScore ?? defaults.engagementScore,
-      reviews: session.reviews ?? defaults.reviews,
-      completionRate: session.completionRate ?? defaults.completionRate,
-      recommendationScore: session.recommendationScore ?? defaults.recommendationScore
+    // Normalize and validate session data
+    const normalizedSession: SpeakerSession = {
+      // Required fields with validation
+      id: session.id || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      title: session.title || 'Untitled Session',
+      description: session.description || 'No description provided',
+      speaker: session.speaker || 'Anonymous User',
+      speakerAddress: session.speakerAddress || '',
+      speakerAvatar: session.speakerAvatar || `https://api.dicebear.com/7.x/identicon/svg?seed=${session.speakerAddress || 'default'}`,
+      category: session.category || 'General',
+      topics: Array.isArray(session.topics) ? session.topics : [],
+      startTime: session.startTime || new Date().toISOString(),
+      endTime: session.endTime || null,
+      duration: typeof session.duration === 'number' ? session.duration : 60,
+      status: session.status || 'scheduled',
+      isLive: Boolean(session.isLive),
+      maxParticipants: typeof session.maxParticipants === 'number' ? session.maxParticipants : 50,
+      participants: Array.isArray(session.participants) ? session.participants : [],
+      viewers: typeof session.viewers === 'number' ? session.viewers : 0,
+      likes: typeof session.likes === 'number' ? session.likes : 0,
+      comments: typeof session.comments === 'number' ? session.comments : 0,
+      totalStaked: typeof session.totalStaked === 'number' ? session.totalStaked : 0,
+      entryFee: typeof session.entryFee === 'number' ? session.entryFee : 0,
+      requirements: session.requirements || '',
+      isPrivate: Boolean(session.isPrivate),
+      recordingEnabled: Boolean(session.recordingEnabled),
+      createdAt: session.createdAt || new Date().toISOString(),
+      updatedAt: session.updatedAt || new Date().toISOString(),
+      
+      // Rating fields with defaults
+      averageRating: typeof session.averageRating === 'number' ? session.averageRating : defaults.averageRating,
+      totalRatings: typeof session.totalRatings === 'number' ? session.totalRatings : defaults.totalRatings,
+      speakerRating: typeof session.speakerRating === 'number' ? session.speakerRating : defaults.speakerRating,
+      engagementScore: typeof session.engagementScore === 'number' ? session.engagementScore : defaults.engagementScore,
+      reviews: Array.isArray(session.reviews) ? session.reviews : defaults.reviews,
+      completionRate: typeof session.completionRate === 'number' ? session.completionRate : defaults.completionRate,
+      recommendationScore: typeof session.recommendationScore === 'number' ? session.recommendationScore : defaults.recommendationScore,
+      
+      // Optional fields
+      filecoinHash: session.filecoinHash || null
     };
+
+    // Validate and fix date formats
+    try {
+      // Handle the specific format "2025-09-30T01:21" by adding seconds if missing
+      let startTimeStr = normalizedSession.startTime;
+      if (typeof startTimeStr === 'string' && startTimeStr.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)) {
+        startTimeStr = startTimeStr + ':00.000Z';
+        console.log(`🔧 Fixed startTime format: ${session.startTime} → ${startTimeStr}`);
+      }
+      normalizedSession.startTime = new Date(startTimeStr).toISOString();
+    } catch (error) {
+      console.warn('⚠️ Invalid startTime format, using current time:', session.startTime);
+      normalizedSession.startTime = new Date().toISOString();
+    }
+
+    try {
+      normalizedSession.createdAt = new Date(normalizedSession.createdAt).toISOString();
+    } catch (error) {
+      console.warn('⚠️ Invalid createdAt format, using current time:', session.createdAt);
+      normalizedSession.createdAt = new Date().toISOString();
+    }
+
+    try {
+      normalizedSession.updatedAt = new Date(normalizedSession.updatedAt).toISOString();
+    } catch (error) {
+      console.warn('⚠️ Invalid updatedAt format, using current time:', session.updatedAt);
+      normalizedSession.updatedAt = new Date().toISOString();
+    }
+
+    // Calculate endTime if not provided
+    if (!normalizedSession.endTime) {
+      const startTime = new Date(normalizedSession.startTime);
+      const endTime = new Date(startTime.getTime() + (normalizedSession.duration * 60 * 1000));
+      normalizedSession.endTime = endTime.toISOString();
+    }
+
+    // Update status based on current time
+    const now = new Date();
+    const startTime = new Date(normalizedSession.startTime);
+    const endTime = new Date(normalizedSession.endTime);
+
+    if (now >= startTime && now <= endTime) {
+      normalizedSession.status = 'live';
+      normalizedSession.isLive = true;
+    } else if (now > endTime) {
+      normalizedSession.status = 'completed';
+      normalizedSession.isLive = false;
+    } else {
+      normalizedSession.status = 'scheduled';
+      normalizedSession.isLive = false;
+    }
+
+    console.log(`✅ Normalized session: ${normalizedSession.title} (${normalizedSession.status})`);
+    return normalizedSession;
   }
 }
 
